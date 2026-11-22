@@ -291,6 +291,31 @@ export const MY_TODO_WORDS: Record<CrewLang, {
   pt: { title: "Minhas tarefas", none: "Nada para fazer agora.", finished: "Terminadas (últimos 30 dias)", noneFinished: "Nada terminado ainda.", print: "Imprimir", printList: "Imprimir minha lista", printFinished: "Imprimir terminadas", open: "Abrir", loading: "Carregando…", failed: "Não carregou. Tente de novo.", back: "Voltar", urgent: "URGENTE", account: "Conta", task: "Tarefa", due: "Prazo", status: "Situação", printedOn: "Impresso", openStatus: "Aberta" },
 };
 
+/* ---------- the office's "Sub to-dos" list ---------- */
+
+export const TASK_LIST_STATUSES = ["all", "open", "seen", "overdue", "done"] as const;
+export type TaskListStatus = (typeof TASK_LIST_STATUSES)[number];
+export const isTaskListStatus = (value: unknown): value is TaskListStatus => TASK_LIST_STATUSES.includes(value as TaskListStatus);
+
+export type StaffTaskRow = {
+  id: number;
+  accountId: string;
+  accountName: string;
+  /** Filled in for printing. */
+  location: string;
+  subId: string;
+  subName: string;
+  /** The sub's language: a printed task goes in it. */
+  language: CrewLang;
+  task: string;
+  translations: Partial<Record<CrewLang, string>>;
+  dueDate: string;
+  dueTime: string;
+  urgent: boolean;
+  status: CwNowStatus;
+  doneAt: string;
+};
+
 /** What the office's card on the board gets. */
 export type StaffTask = {
   id: number;

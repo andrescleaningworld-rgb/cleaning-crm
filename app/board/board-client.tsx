@@ -3,6 +3,7 @@
 // The Office Pin Board for staff: Whole board and My square. Calendar and
 // TV mode are their own pages, reached from the same tabs.
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -377,14 +378,19 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 squareExtra={{
                   "shared:account": <MarkateCheckNow compact onDone={(added) => (added > 0 ? void load(true) : undefined)} />,
                   "shared:cwnow": (
-                    <button
-                      type="button"
-                      className={styles.cwNowAdd}
-                      data-paper
-                      onClick={() => setAddingCwNow(true)}
-                    >
-                      + Add to-do
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className={styles.cwNowAdd}
+                        data-paper
+                        onClick={() => setAddingCwNow(true)}
+                      >
+                        + Add to-do
+                      </button>
+                      <Link className={styles.cwNowAdd} data-paper href="/board/sub-todos" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
+                        Sub to-dos
+                      </Link>
+                    </>
                   ),
                 }}
               />

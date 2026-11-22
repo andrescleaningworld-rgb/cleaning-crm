@@ -897,6 +897,7 @@ export default function SubcontractorDetailPage() {
             items={[
               { label: "Edit", onSelect: () => setEditing(true) },
               { label: LABELS.print, onSelect: handlePrint },
+              { label: "CW Now to-dos", onSelect: () => window.location.assign(`/board/sub-todos?subId=${encodeURIComponent(getSubId(subcontractor))}`) },
               { label: refreshing ? "Refreshing…" : "Refresh", icon: "clock", onSelect: () => void handleRefresh() },
             ]}
           />

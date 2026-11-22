@@ -7,7 +7,7 @@
 
 import { after, NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
-import { isCwNowShareMethod } from "@/lib/cwNowTasks";
+import { isCwNowShareMethod, isTaskListStatus } from "@/lib/cwNowTasks";
 import { privateStoreOn } from "@/lib/files";
 import { smsLinksOn } from "@/lib/sms";
 import {
@@ -17,6 +17,7 @@ import {
   createTask,
   cwNowTasksReady,
   deliverNewTask,
+  listStaffTasks,
   listTaskSubs,
   shareTask,
   staffFinishTask,
@@ -37,6 +38,25 @@ export async function GET(request: NextRequest) {
       const accountId = clean(params.get("accountId"));
       if (accountId) return NextResponse.json({ success: true, ready: true, assignedSubId: await assignedSubId(accountId) }, noStore);
       return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateStoreOn(), linksOn: smsLinksOn() }, noStore);
+    }
+    // The "Sub to-dos" view, the office calendar and the printouts.
+    if (params.get("view") === "list") {
+      const day = (name: string) => (/^\d{4}-\d{2}-\d{2}$/.test(clean(params.get(name))) ? clean(params.get(name)) : "");
+      const status = params.get("status");
+      const listId = Number(params.get("id"));
+      const [tasks, subs] = await Promise.all([
+        listStaffTasks({
+          id: Number.isInteger(listId) && listId > 0 ? listId : undefined,
+          subId: clean(params.get("subId")),
+          accountId: clean(params.get("accountId")),
+          status: isTaskListStatus(status) ? status : "all",
+          from: day("from"),
+          to: day("to"),
+          withLocation: params.get("full") === "1",
+        }),
+        listTaskSubs(),
+      ]);
+      return NextResponse.json({ success: true, ready: true, tasks, subs }, noStore);
     }
     const id = Number(params.get("id"));
     if (!Number.isInteger(id) || id <= 0) return refuse("Which task?");

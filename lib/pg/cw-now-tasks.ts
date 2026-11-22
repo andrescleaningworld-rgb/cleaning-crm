@@ -28,6 +28,8 @@ import {
   type CwNowShareMethod,
   type CwNowStatus,
   type MyTodo,
+  type StaffTaskRow,
+  type TaskListStatus,
   type PublicTask,
   type StaffTask,
   type TaskTextKind,
@@ -590,6 +592,50 @@ export async function listMyTodos(subId: string, options: { withLocation?: boole
       status: row.status,
       doneAt: iso(row.done_at),
       href: `/porter/task/${row.token}`,
+    };
+  });
+}
+
+/* ---------- the office's "Sub to-dos" list ---------- */
+
+/** Every task the filters match, soonest due first (never the private link). Cancelled ones only when asked for by id. */
+export async function listStaffTasks(filter: { id?: number; subId?: string; accountId?: string; status?: TaskListStatus; from?: string; to?: string; withLocation?: boolean }): Promise<StaffTaskRow[]> {
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const add = (sql: (slot: string) => string, value: unknown) => {
+    params.push(value);
+    where.push(sql(`$${params.length}`));
+  };
+  if (filter.id) add((slot) => `t.id = ${slot}`, filter.id);
+  else where.push(`t.status <> 'cancelled'`);
+  if (filter.subId) add((slot) => `t.sub_id = ${slot}`, filter.subId);
+  if (filter.accountId) add((slot) => `t.account_id = ${slot}`, filter.accountId);
+  if (filter.from) add((slot) => `t.due_date >= ${slot}::date`, filter.from);
+  if (filter.to) add((slot) => `t.due_date <= ${slot}::date`, filter.to);
+  if (filter.status === "open") where.push(`t.status NOT IN ('done', 'cancelled')`);
+  if (filter.status === "seen") where.push(`t.status = 'seen'`);
+  if (filter.status === "done") where.push(`t.status = 'done'`);
+  if (filter.status === "overdue") add((slot) => `t.status NOT IN ('done', 'cancelled') AND t.due_date < ${slot}::date`, officeClock(new Date()).day);
+  const rows = (await getSql().query(`${SELECT_TASK} WHERE ${where.join(" AND ") || "true"} ORDER BY t.due_date ASC, t.due_time ASC, t.id ASC LIMIT 500`, params)) as TaskRow[];
+  const live = rows.filter((row) => !row.account_gone);
+  const locations = filter.withLocation ? await Promise.all(live.map((row) => todoLocation(row.account_id, row.account_name).catch(() => ""))) : [];
+  return live.map((row, index) => {
+    const translations = row.translations ?? {};
+    return {
+      id: taskIdOf(row),
+      accountId: row.account_id,
+      accountName: row.account_name,
+      location: locations[index] ?? "",
+      subId: clean(row.sub_id),
+      subName: row.sub_name,
+      language: langOf(row),
+      task: row.task,
+      translations: { ...(translations.es ? { es: translations.es } : {}), ...(translations.pt ? { pt: translations.pt } : {}) },
+      dueDate: dueOf(row),
+      dueTime: cleanTaskTime(row.due_time),
+      urgent: row.priority === "urgent",
+      status: row.status,
+      doneAt: iso(row.done_at),
     };
   });
 }

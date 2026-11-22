@@ -24,6 +24,7 @@ import {
   type CalendarData,
   type Cleaning,
 } from "@/lib/cleanings";
+import { DUE_STYLE, DUE_WORDS, taskDueState, type StaffTaskRow } from "@/lib/cwNowTasks";
 import type { OfficeEvent } from "@/lib/officeEvents";
 import { EVENT_ICON } from "@/lib/officeEvents";
 import { BOARD_TABS, useBoardTabs } from "../board-client";
@@ -156,6 +157,42 @@ export default function CalendarClient() {
     for (const cleaning of shown) map.set(cleaning.day, [...(map.get(cleaning.day) ?? []), cleaning]);
     return map;
   }, [shown]);
+
+  // CW Now to-dos on their due days. The Sub filter above applies to them too.
+  const [subTasks, setSubTasks] = useState<StaffTaskRow[]>([]);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/cw-now-tasks?view=list&status=all&from=${range.from}&to=${range.to}`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { success?: boolean; ready?: boolean; tasks?: StaffTaskRow[] }) => {
+        if (alive) setSubTasks(body.success === true && body.ready === true ? (body.tasks ?? []) : []);
+      })
+      .catch(() => alive && setSubTasks([]));
+    return () => {
+      alive = false;
+    };
+  }, [range]);
+  const tasksOn = (d: string) => subTasks.filter((task) => task.dueDate === d && (!sub || task.subName.trim().toLowerCase() === sub.trim().toLowerCase()));
+  const taskChips = (d: string) => {
+    const list = tasksOn(d);
+    if (list.length === 0) return null;
+    return (
+      <ul className={styles.list} data-calendar-tasks>
+        {list.map((task) => {
+          const due = taskDueState(task.dueDate, task.status, today);
+          return (
+            <li key={task.id}>
+              <Link href={`/board/sub-todos?task=${task.id}`} style={{ ...DUE_STYLE[due], display: "block", borderWidth: 2, borderStyle: "solid", borderRadius: 10, padding: "4px 8px", textDecoration: "none" }}>
+                <strong style={{ display: "block", fontSize: 12 }}>✅ {DUE_WORDS.en[due]}</strong>
+                <strong style={{ display: "block" }}>{task.accountName}</strong>
+                <span style={{ display: "block", fontSize: 13 }}>{task.subName}: {task.task.slice(0, 50)}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
 
   async function act(body: Record<string, unknown>, message: string) {
     setBusy(true);
@@ -305,6 +342,7 @@ export default function CalendarClient() {
           </p>
 
           {view === "today" ? <EventChips events={eventsByDay.get(day) ?? []} onPick={setRemoving} /> : null}
+          {view === "today" ? taskChips(day) : null}
 
           {state === "loading" || !data || !fresh ? (
             <SkeletonList rows={3} />
@@ -323,6 +361,7 @@ export default function CalendarClient() {
                     {d === today ? <span className={styles.todayTag}>Today</span> : null}
                   </h3>
                   <EventChips events={eventsByDay.get(d) ?? []} onPick={setRemoving} />
+                  {taskChips(d)}
                   {(byDay.get(d)?.length ?? 0) === 0 ? <p className="ui-muted">Nothing</p> : <ul className={styles.list}>{byDay.get(d)!.map(card)}</ul>}
                 </section>
               ))}
@@ -357,6 +396,7 @@ export default function CalendarClient() {
                       </span>
                     ) : null}
                     {c.total > 0 ? <span className={styles.monthTotal}>{c.total}</span> : null}
+                    {tasksOn(d).length > 0 ? <span style={{ fontSize: 12, fontWeight: 800 }}>✅ {tasksOn(d).length}</span> : null}
                     <span className={styles.monthDots}>
                       {c.done > 0 ? <span className={`${styles.dot} ${styles.cleaned}`}>{c.done}</span> : null}
                       {c.missed > 0 ? <span className={`${styles.dot} ${styles.missed}`}>{c.missed}</span> : null}
