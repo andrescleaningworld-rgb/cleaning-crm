@@ -10,6 +10,8 @@ export const ROLLOUT_SWITCHES = {
   MY_TODOS: "FEATURE_MY_TODOS",
   /** 4D: "This is an extra job" on a CW Now task, and "Send to team's CW Now" on a complaint. */
   CW_LINKS: "FEATURE_CW_NOW_LINKS",
+  /** 4E: "Make task page with AI" on the task form, and that page on the sub's link, My to-dos and printouts. */
+  AI_TASK_PAGE: "FEATURE_AI_TASK_PAGE",
 } as const;
 
 export type RolloutSwitch = keyof typeof ROLLOUT_SWITCHES;

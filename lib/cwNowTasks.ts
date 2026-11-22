@@ -3,6 +3,7 @@
 // Database side: lib/pg/cw-now-tasks.ts (migration 087).
 
 import type { CrewLang } from "@/lib/crewLinkPeople";
+import type { TaskPages } from "@/lib/taskPage";
 
 export type CwNowStatus = "needs_link" | "sent" | "seen" | "done" | "cancelled";
 export type CwNowPriority = "normal" | "urgent";
@@ -238,6 +239,8 @@ export type PublicTask = {
   /** FEATURE_MY_TODOS: the due date is shown in its color (today yellow, late red, done green). */
   dueColors?: boolean;
   linkKind?: TaskLinkKind;
+  /** FEATURE_AI_TASK_PAGE: the page the office checked. */
+  pages?: TaskPages | null;
   /** A complaint: Done needs an after photo, and there is none yet. */
   needsPhoto?: boolean;
   /** Photos can be added: the private file store is connected. */
@@ -299,6 +302,7 @@ export type MyTodo = {
   /** The private task page. */
   href: string;
   kind?: TaskLinkKind;
+  pages?: TaskPages | null;
 };
 
 export const MY_TODO_WORDS: Record<CrewLang, {
@@ -333,6 +337,7 @@ export type StaffTaskRow = {
   status: CwNowStatus;
   doneAt: string;
   kind?: TaskLinkKind;
+  pages?: TaskPages | null;
 };
 
 /** What the office's card on the board gets. */

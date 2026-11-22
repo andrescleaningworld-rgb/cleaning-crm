@@ -27,6 +27,8 @@ import {
   type StaffTask,
 } from "@/lib/cwNowTasks";
 import type { SetUpJob, TaskSubOption } from "@/lib/pg/cw-now-tasks";
+import type { TaskPage } from "@/lib/taskPage";
+import TaskPageEditor from "./task-page-editor";
 import styles from "./board.module.css";
 
 async function postTask(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -64,6 +66,10 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
   const [isExtra, setIsExtra] = useState(false);
   const [extraJobs, setExtraJobs] = useState<SetUpJob[]>([]);
   const [extraJobId, setExtraJobId] = useState("");
+  // "Make task page with AI": a draft the office edits. Nothing goes out until Save and send.
+  const [aiPageOn, setAiPageOn] = useState(false);
+  const [page, setPage] = useState<TaskPage | null>(null);
+  const [drafting, setDrafting] = useState(false);
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -82,13 +88,14 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     setIsExtra(false);
     setExtraJobs([]);
     setExtraJobId("");
+    setPage(null);
     setFiles([]);
     setError("");
     setReady(null);
     let alive = true;
     fetch("/api/cw-now-tasks?view=form", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { success?: boolean; ready?: boolean; subs?: TaskSubOption[]; privateFiles?: boolean; linksOn?: boolean; cwLinksOn?: boolean }) => {
+      .then((data: { success?: boolean; ready?: boolean; subs?: TaskSubOption[]; privateFiles?: boolean; linksOn?: boolean; cwLinksOn?: boolean; aiPageOn?: boolean }) => {
         if (!alive) return;
         if (data.success !== true) throw new Error("failed");
         setReady(data.ready === true);
@@ -96,6 +103,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         setPrivateFiles(data.privateFiles === true);
         setLinksOn(data.linksOn === true);
         setCwLinksOn(data.cwLinksOn === true);
+        setAiPageOn(data.aiPageOn === true);
       })
       .catch(() => {
         if (alive) setError("The form did not load. Close it and try again.");
@@ -143,6 +151,20 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     setFiles((now) => [...now, ...picked]);
   }
 
+  async function makePage() {
+    setError("");
+    if (!task.trim()) return setError("Write a few words in Task first.");
+    setDrafting(true);
+    try {
+      const data = await postTask({ action: "aiPage", words: task.trim(), accountName: account?.name ?? "", dueDate, dueTime });
+      setPage(data.page as TaskPage);
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "The AI did not answer. Try again.");
+    } finally {
+      setDrafting(false);
+    }
+  }
+
   async function save() {
     setError("");
     if (!account?.id) return setError(accountQuery.trim() ? "Pick the account from the list." : "Pick the account.");
@@ -158,7 +180,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         uploaded.push({ url: blob.url, name: file.name, size: file.size, contentType: file.type });
       }
       setBusy("Saving…");
-      await postTask({ action: "create", accountId: account.id, subId, task: task.trim(), dueDate, dueTime, urgent, files: uploaded, ...(isExtra ? { extraJobId } : {}) });
+      await postTask({ action: "create", accountId: account.id, subId, task: task.trim(), dueDate, dueTime, urgent, files: uploaded, ...(isExtra ? { extraJobId } : {}), ...(page ? { taskPage: page } : {}) });
       showToast(linksOn ? CHEER.logged : "Saved. Open the pin and use Share to send the link.");
       onAdded();
       onClose();
@@ -219,6 +241,14 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
           </div>
         ) : null}
         <TextAreaField label="Task" rows={5} maxLength={TASK_MAX} value={task} onChange={(event) => setTask(event.target.value)} />
+        {aiPageOn ? (
+          <div className="ui-stack">
+            <BigButton kind="second" busy={drafting} busyLabel="Writing the page…" onClick={() => void makePage()} data-ai-page>
+              {page ? "Make it again with AI" : "Make task page with AI"}
+            </BigButton>
+            {page ? <TaskPageEditor page={page} onChange={setPage} onRemove={() => setPage(null)} /> : null}
+          </div>
+        ) : null}
         <Field label="Due date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
         <Field label="Time (optional)" type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} />
         <div>

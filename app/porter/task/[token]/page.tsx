@@ -11,6 +11,8 @@ import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
 import { DUE_STYLE, DUE_WORDS, NEEDS_PHOTO_ERROR, NEEDS_PHOTO_WORDS, TASK_LINK_LABEL, TASK_WORDS, taskDueState, taskDueText, type PublicTask } from "@/lib/cwNowTasks";
 import { shrinkImage } from "@/lib/imageResize";
 import { sizeText } from "@/lib/accountDocuments";
+import { pageFor } from "@/lib/taskPage";
+import TaskPageView from "@/app/components/TaskPageView";
 import { crewLinkStrings } from "../../[code]/strings";
 import { CenteredMessage, CrewHeader, ErrorBox, SentScreen } from "../../[code]/ui";
 
@@ -199,16 +201,22 @@ export default function CwNowTaskPage() {
           </section>
         )}
 
-        <section className="rounded-2xl bg-white p-4 shadow-sm">
-          <p className="text-lg font-bold text-slate-500">{words.task}</p>
-          <p className="mt-1 whitespace-pre-wrap text-2xl font-bold leading-snug text-slate-900">{translated || task.task}</p>
-          {translated && translated !== task.task ? (
-            <p className="mt-3 whitespace-pre-wrap border-t border-slate-200 pt-3 text-base text-slate-600">
-              <span className="font-bold">{words.original}: </span>
-              {task.task}
-            </p>
-          ) : null}
-        </section>
+        {task.pages ? (
+          <section className="rounded-2xl bg-white p-4 shadow-sm">
+            <TaskPageView page={pageFor(task.pages, lang)} lang={lang} />
+          </section>
+        ) : (
+          <section className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-lg font-bold text-slate-500">{words.task}</p>
+            <p className="mt-1 whitespace-pre-wrap text-2xl font-bold leading-snug text-slate-900">{translated || task.task}</p>
+            {translated && translated !== task.task ? (
+              <p className="mt-3 whitespace-pre-wrap border-t border-slate-200 pt-3 text-base text-slate-600">
+                <span className="font-bold">{words.original}: </span>
+                {task.task}
+              </p>
+            ) : null}
+          </section>
+        )}
 
         {task.files.length > 0 ? (
           <section className="space-y-2">

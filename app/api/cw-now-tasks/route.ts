@@ -10,8 +10,10 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { isCwNowShareMethod, isTaskListStatus } from "@/lib/cwNowTasks";
 import { privateStoreOn } from "@/lib/files";
 import { smsLinksOn } from "@/lib/sms";
+import { draftTaskPage } from "@/lib/aiTaskPage";
 import {
   CwNowTaskError,
+  aiTaskPageOn,
   assignedSubId,
   cancelTask,
   complaintForTask,
@@ -45,7 +47,7 @@ export async function GET(request: NextRequest) {
         const [subId, extraJobs] = await Promise.all([assignedSubId(accountId), (await cwNowLinksOn()) ? setUpJobsFor(accountId) : Promise.resolve([])]);
         return NextResponse.json({ success: true, ready: true, assignedSubId: subId, extraJobs }, noStore);
       }
-      return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateStoreOn(), linksOn: smsLinksOn(), cwLinksOn: await cwNowLinksOn() }, noStore);
+      return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateStoreOn(), linksOn: smsLinksOn(), cwLinksOn: await cwNowLinksOn(), aiPageOn: await aiTaskPageOn() }, noStore);
     }
     // "Send to team's CW Now" on a complaint: what its form needs.
     if (params.get("view") === "complaint") {
@@ -107,9 +109,19 @@ export async function POST(request: NextRequest) {
         by,
         byStaffId,
         link: body.extraJobId ? await extraJobLink(clean(body.extraJobId), clean(body.accountId), clean(body.subId)) : undefined,
+        taskPage: body.taskPage,
       });
       after(() => deliverNewTask(id, origin));
       return NextResponse.json({ success: true, id }, noStore);
+    }
+
+    // "Make task page with AI": a draft only. Nothing is saved or sent until the office presses Save and send.
+    if (action === "aiPage") {
+      if (!(await aiTaskPageOn())) return refuse("The AI task page is not turned on here yet.", 409);
+      const words = clean(body.words).slice(0, 2000);
+      if (!words) return refuse("Write a few words first.");
+      const page = await draftTaskPage({ words, accountName: clean(body.accountName), due: [clean(body.dueDate), clean(body.dueTime)].filter(Boolean).join(" ") });
+      return page ? NextResponse.json({ success: true, page }, noStore) : refuse("The AI did not answer. Try again, or send your own words.", 502);
     }
 
     if (action === "fromComplaint") {

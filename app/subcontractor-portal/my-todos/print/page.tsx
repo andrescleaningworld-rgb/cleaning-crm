@@ -9,6 +9,8 @@ import { useSearchParams } from "next/navigation";
 import { PrintedList, PrintedTask, TaskPrintStyles, type PrintTask } from "@/app/components/TaskPrintSheet";
 import { MY_TODO_WORDS, isOpenTask, type MyTodo } from "@/lib/cwNowTasks";
 import { isCrewLang, type CrewLang } from "@/lib/crewLinkPeople";
+import { pageFor } from "@/lib/taskPage";
+import TaskPageView from "@/app/components/TaskPageView";
 
 function toPrint(task: MyTodo, lang: CrewLang): PrintTask {
   return { id: task.id, accountName: task.accountName, location: task.location, task: lang === "en" ? task.task : task.translations[lang] || task.task, dueDate: task.dueDate, dueTime: task.dueTime, urgent: task.urgent, status: task.status };
@@ -49,7 +51,7 @@ function Sheet() {
         <button type="button" className="ui-btn ui-btn-second" onClick={() => window.close()}>{words.back}</button>
       </div>
       <div className="task-print-view">
-        {one ? <PrintedTask task={toPrint(one, lang)} lang={lang} /> : <PrintedList title={words.title} subtitle={list === "done" ? words.finished : undefined} tasks={shown.map((task) => toPrint(task, lang))} lang={lang} />}
+        {one ? <PrintedTask task={toPrint(one, lang)} lang={lang}>{one.pages ? <TaskPageView page={pageFor(one.pages, lang)} lang={lang} /> : undefined}</PrintedTask> : <PrintedList title={words.title} subtitle={list === "done" ? words.finished : undefined} tasks={shown.map((task) => toPrint(task, lang))} lang={lang} />}
       </div>
     </>
   );

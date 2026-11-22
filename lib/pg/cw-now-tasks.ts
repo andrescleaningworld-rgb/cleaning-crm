@@ -53,6 +53,8 @@ import { recordFix } from "@/lib/pg/complaint-fix";
 import { notifyReadyToReview } from "@/lib/complaintReviewNotice";
 import { addJobPhoto, finishExtraJob, getExtraJob, stampEmailed } from "@/lib/pg/extra-jobs";
 import { sendExtraJobDone } from "@/lib/extraJobEmail";
+import { translateTaskPage } from "@/lib/aiTaskPage";
+import { cleanTaskPage, officeOnlyLine, readTaskPages, type TaskPage, type TaskPages } from "@/lib/taskPage";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : "");
@@ -180,7 +182,8 @@ export async function assignedSubId(accountId: string): Promise<string> {
 
 export type NewTaskFile = { url: string; name: string; size: number; contentType: string };
 
-export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string; link?: TaskLink }): Promise<number> {
+export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string; link?: TaskLink; taskPage?: unknown }): Promise<number> {
+  const page = input.taskPage ? await checkedTaskPage(input.taskPage) : null;
   const task = clean(input.task).slice(0, TASK_MAX);
   if (!task) throw new CwNowTaskError("Write the task.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw new CwNowTaskError("Pick the due date.");
@@ -236,6 +239,7 @@ export async function createTask(input: { accountId: string; subId: string; task
     ...(input.link
       ? [sql`UPDATE cw_now_tasks SET extra_job_id = ${input.link.extraJobId ?? null}, complaint_row_id = ${input.link.complaintRowId ?? null}, complaint_mode = ${input.link.complaintMode ?? ""} WHERE id = ${id}`]
       : []),
+    ...(page ? [sql`UPDATE cw_now_tasks SET task_page = ${JSON.stringify({ en: page })}::jsonb WHERE id = ${id}`] : []),
   ]);
   return id;
 }
@@ -248,6 +252,12 @@ export async function deliverNewTask(taskId: number, origin: string): Promise<vo
     const [es, pt] = await Promise.all([translateTo(row.task, "es").catch(() => null), translateTo(row.task, "pt").catch(() => null)]);
     const translations = { ...(es ? { es } : {}), ...(pt ? { pt } : {}) };
     if (Object.keys(translations).length > 0) await getSql()`UPDATE cw_now_tasks SET translations = ${JSON.stringify(translations)}::jsonb WHERE id = ${taskId}`;
+    // The page the office checked, in Spanish and Portuguese, before the sub is told.
+    const stored = readTaskPages(row.task_page);
+    if (stored) {
+      const pages = await translateTaskPage(stored.en);
+      await getSql()`UPDATE cw_now_tasks SET task_page = ${JSON.stringify(pages)}::jsonb WHERE id = ${taskId}`;
+    }
     await addCalendarEvent(row);
     let reached = await textSub(row, "new", origin);
     // FEATURE_SUB_NOTICES: the private link also goes by email. It counts as Sent, with its line in the history.
@@ -507,6 +517,7 @@ export async function publicTask(token: string): Promise<PublicTask | null> {
     language: langOf(row),
     dueColors: rolloutOn("MY_TODOS"),
     linkKind: linkKindOf(row),
+    pages: pagesOf(row),
     needsPhoto: Boolean(row.complaint_row_id) && !files.some((file) => file.source === "sub"),
     canAddPhoto: privateStoreOn(),
     uploadFolder: taskSubFolder(taskId),
@@ -632,8 +643,24 @@ export async function listMyTodos(subId: string, options: { withLocation?: boole
       doneAt: iso(row.done_at),
       href: `/porter/task/${row.token}`,
       kind: linkKindOf(row),
+      pages: pagesOf(row),
     };
   });
+}
+
+/* ---------- the AI task page (migration 088, FEATURE_AI_TASK_PAGE) ---------- */
+
+export const aiTaskPageOn = async () => rolloutOn("AI_TASK_PAGE") && (await cwNowTasksReady()) && (await cwNowLinksReady());
+const pagesOf = (row: Pick<TaskRow, "task_page">): TaskPages | null => (rolloutOn("AI_TASK_PAGE") ? readTaskPages(row.task_page) : null);
+
+/** The office's edited page. Refused while a line still holds money or office words. */
+async function checkedTaskPage(value: unknown): Promise<TaskPage> {
+  if (!(await aiTaskPageOn())) throw new CwNowTaskError("The AI task page is not turned on here yet.");
+  const page = cleanTaskPage(value);
+  if (!page) throw new CwNowTaskError("The task page needs a title and at least one step.");
+  const bad = officeOnlyLine(page);
+  if (bad) throw new CwNowTaskError(`Take this off the page, the sub would see it: "${bad}"`);
+  return page;
 }
 
 /* ---------- extra jobs and complaints (migration 088, FEATURE_CW_NOW_LINKS) ---------- */
@@ -893,6 +920,7 @@ export async function listStaffTasks(filter: { id?: number; subId?: string; acco
       status: row.status,
       doneAt: iso(row.done_at),
       kind: linkKindOf(row),
+      pages: pagesOf(row),
     };
   });
 }

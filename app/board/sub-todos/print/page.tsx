@@ -9,6 +9,8 @@ import { useSearchParams } from "next/navigation";
 import { PrintedList, PrintedTask, TaskPrintStyles, type PrintTask } from "@/app/components/TaskPrintSheet";
 import { taskDueText, type StaffTaskRow } from "@/lib/cwNowTasks";
 import type { CrewLang } from "@/lib/crewLinkPeople";
+import { pageFor } from "@/lib/taskPage";
+import TaskPageView from "@/app/components/TaskPageView";
 
 const toPrint = (task: StaffTaskRow, lang: CrewLang): PrintTask => ({
   id: task.id,
@@ -57,7 +59,7 @@ function Sheet() {
         <a className="ui-btn ui-btn-second" href="/board/sub-todos">Back</a>
       </div>
       <div className="task-print-view">
-        {one ? <PrintedTask task={toPrint(one, one.language)} lang={one.language} /> : <PrintedList title="Sub to-dos" subtitle={subtitle} tasks={tasks.map((task) => toPrint(task, "en"))} lang="en" />}
+        {one ? <PrintedTask task={toPrint(one, one.language)} lang={one.language}>{one.pages ? <TaskPageView page={pageFor(one.pages, one.language)} lang={one.language} /> : undefined}</PrintedTask> : <PrintedList title="Sub to-dos" subtitle={subtitle} tasks={tasks.map((task) => toPrint(task, "en"))} lang="en" />}
       </div>
     </>
   );

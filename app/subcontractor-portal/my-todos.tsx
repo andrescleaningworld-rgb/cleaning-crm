@@ -7,9 +7,10 @@
 
 import { useEffect, useState } from "react";
 import { DUE_STYLE, DUE_WORDS, MY_TODO_WORDS, TASK_LINK_LABEL, isOpenTask, officeToday, taskDueState, taskDueText, type MyTodo } from "@/lib/cwNowTasks";
+import { pageFor } from "@/lib/taskPage";
 import type { UiLang } from "@/app/ui/words";
 
-const titleOf = (task: MyTodo, lang: UiLang) => (lang === "en" ? task.task : task.translations[lang] || task.task);
+const titleOf = (task: MyTodo, lang: UiLang) => (task.pages ? pageFor(task.pages, lang).title : lang === "en" ? task.task : task.translations[lang] || task.task);
 
 function TaskRow({ task, lang, today }: { task: MyTodo; lang: UiLang; today: string }) {
   const words = MY_TODO_WORDS[lang];
