@@ -201,7 +201,8 @@ export async function POST(request: NextRequest) {
       if (body.on !== false) {
         const stop = await finishToDoOfPin(kind, itemId);
         if (stop) return refuse(stop, 409);
-        await finishProblemOfPin(kind, itemId);
+        const stopProblem = await finishProblemOfPin(kind, itemId);
+        if (stopProblem) return refuse(stopProblem, 409);
       }
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
       if (body.on === false) {
@@ -223,7 +224,8 @@ export async function POST(request: NextRequest) {
       if (status === "done") {
         const stop = await finishToDoOfPin(kind, itemId);
         if (stop) return refuse(stop, 409);
-        await finishProblemOfPin(kind, itemId);
+        const stopProblem = await finishProblemOfPin(kind, itemId);
+        if (stopProblem) return refuse(stopProblem, 409);
       }
       const result = await setPaperStatus({ kind, itemId, status, note, by });
       if (!result.ok) return refuse("That paper is not on the board any more.", 404);

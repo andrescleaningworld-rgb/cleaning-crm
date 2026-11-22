@@ -95,7 +95,8 @@ export type BoardTab = "board" | "mine" | "calendar" | "tv";
 /** A blue paper that mirrors a real extra job: it is finished on the job's page (Done ✓ in its popup goes there), never with Unpin. */
 const isExtraJob = (paper: Paper) => paper.kind === "extra" && paper.itemId.startsWith("job-");
 /** Finished on its own record, never with Unpin: an extra job, or a CW Now to-do (Mark done / Cancel on its card). */
-const hasOwnDone = (paper: Paper) => isExtraJob(paper) || paper.kind === "cwnow";
+// A customer's portal request too: the customer sees its status, so it is set on Portal Requests.
+const hasOwnDone = (paper: Paper) => isExtraJob(paper) || paper.kind === "cwnow" || (paper.kind === "note" && paper.itemId.startsWith("problem-portal-"));
 /** A customer check-in's paper ("checkin:<id>:attention" / ":ok", lib/pg/customer-checkin.ts): its check-in id, else 0. */
 const checkinIdOf = (paper: Paper) => (paper.kind === "note" ? Number(/^checkin:(\d+):/.exec(paper.itemId)?.[1] ?? 0) : 0);
 

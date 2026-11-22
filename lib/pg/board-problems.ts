@@ -18,6 +18,10 @@ export const PROBLEMS_START = "2026-11-22T20:19:33Z";
 
 const CREW = "problem-crew-";
 const SUB = "problem-sub-";
+const PORTAL = "problem-portal-";
+
+/** The customer sees a request's status, so it is only ever changed on Portal Requests. */
+export const PORTAL_PIN_MESSAGE = "The customer sees this status. Tap Open full details and set it on Portal Requests. The pin then comes down by itself.";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 
@@ -69,6 +73,25 @@ const SUB_SOURCE = `
   WHERE lower(btrim(i.status)) IN ('', 'new') AND btrim(i.issue_id) <> '' AND i.imported_at IS NULL
     AND i.created_at >= '${PROBLEMS_START}'::timestamptz AND (to_jsonb(a)->>'deleted_at') IS NULL`;
 
+// Phase 3: what a customer asks for in the portal (extra cleaning, a date
+// change, billing). A portal problem is already a complaint, with its own pin.
+const PORTAL_WORDS = `CASE r.tab WHEN 'portal-service-requests' THEN 'Extra cleaning' WHEN 'portal-date-changes' THEN 'Date change' ELSE 'Billing' END`;
+const PORTAL_SOURCE = `
+  SELECT '${PORTAL}' || r.id::text AS item_id, r.id::text AS record_id,
+         'Customer request: ' || ${PORTAL_WORDS} AS title, 'Customer request' AS label,
+         concat_ws(' - ', NULLIF(btrim(r.field_1), ''), NULLIF(btrim(r.field_2), ''), NULLIF(btrim(r.field_3), '')) AS notes,
+         COALESCE(a.id, '') AS account_id, COALESCE(NULLIF(btrim(a.account_name), ''), btrim(r.account_name)) AS account_name,
+         COALESCE(NULLIF(btrim(mg.name), ''), btrim(a.manager_raw), '') AS manager,
+         'Customer' AS who, r.created_at AS since,
+         '/portal-requests' AS href,
+         ${MANAGER_SQUARE} AS square
+  FROM portal_requests r
+  LEFT JOIN accounts a ON a.id = r.account_ref
+  LEFT JOIN managers mg ON mg.id = a.manager_id
+  WHERE r.tab IN ('portal-service-requests', 'portal-date-changes', 'portal-billing-requests')
+    AND lower(btrim(r.status)) IN ('', 'new', 'in progress') AND r.imported_at IS NULL
+    AND r.created_at >= '${PROBLEMS_START}'::timestamptz AND (to_jsonb(a)->>'deleted_at') IS NULL`;
+
 type NewPin = { item_id: string; board_square: string; title: string; account_name: string; notes: string };
 
 let lastRun = 0;
@@ -76,7 +99,11 @@ let running: Promise<NewPin[]> | null = null;
 
 async function runSync(): Promise<NewPin[]> {
   const sql = getSql();
-  const [crew, sub] = (await Promise.all([sql.query(NEW_PIN.replace("__SOURCE__", CREW_SOURCE)), sql.query(NEW_PIN.replace("__SOURCE__", SUB_SOURCE))])) as [NewPin[], NewPin[]];
+  const [crew, sub, portal] = (await Promise.all([
+    sql.query(NEW_PIN.replace("__SOURCE__", CREW_SOURCE)),
+    sql.query(NEW_PIN.replace("__SOURCE__", SUB_SOURCE)),
+    sql.query(NEW_PIN.replace("__SOURCE__", PORTAL_SOURCE)),
+  ])) as [NewPin[], NewPin[], NewPin[]];
   // Closed where it lives: the pin comes down.
   await sql.query(`
     UPDATE handoff_items h SET board_done_at = now(), board_done_by = 'Closed in Crew problems'
@@ -87,7 +114,12 @@ async function runSync(): Promise<NewPin[]> {
     FROM sub_portal_issues i
     WHERE h.kind = 'note' AND h.item_id = '${SUB}' || btrim(i.issue_id) AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
       AND lower(btrim(i.status)) NOT IN ('', 'new')`);
-  return [...crew, ...sub];
+  await sql.query(`
+    UPDATE handoff_items h SET board_done_at = now(), board_done_by = 'Closed in Portal Requests'
+    FROM portal_requests r
+    WHERE h.kind = 'note' AND h.item_id = '${PORTAL}' || r.id::text AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
+      AND lower(btrim(r.status)) NOT IN ('', 'new', 'in progress')`);
+  return [...crew, ...sub, ...portal];
 }
 
 /** Pins what is new and takes down what was closed. At most once every 15 seconds per server. Returns the new papers. */
@@ -126,22 +158,28 @@ async function pinIsUp(itemId: string): Promise<boolean> {
 
 const markClosedByPin = (itemId: string) => getSql()`UPDATE handoff_items SET data = data || '{"closedByPin":"1"}'::jsonb WHERE kind = 'note' AND item_id = ${itemId}`;
 
-/** Call before a problem's pin comes down as Done: the report is closed where it lives. Throws when that did not save. */
-export async function finishProblemOfPin(kind: string, itemId: string): Promise<void> {
-  if (kind !== "note" || !(itemId.startsWith(CREW) || itemId.startsWith(SUB)) || !(await pinIsUp(itemId))) return;
+/**
+ * Call before a problem's pin comes down as Done: the report is closed where
+ * it lives. Returns the words to show when the pin must stay up (a customer
+ * request). Throws when the report did not save.
+ */
+export async function finishProblemOfPin(kind: string, itemId: string): Promise<string | null> {
+  if (kind === "note" && itemId.startsWith(PORTAL)) return (await pinIsUp(itemId)) ? PORTAL_PIN_MESSAGE : null;
+  if (kind !== "note" || !(itemId.startsWith(CREW) || itemId.startsWith(SUB)) || !(await pinIsUp(itemId))) return null;
   const sql = getSql();
   if (itemId.startsWith(CREW)) {
     const id = Number(itemId.slice(CREW.length));
-    if (!Number.isInteger(id)) return;
+    if (!Number.isInteger(id)) return null;
     const rows = (await sql`UPDATE hub_issues SET status = 'resolved', resolved_at = now() WHERE id = ${id} AND status = 'open' RETURNING id`) as unknown[];
     if (rows.length > 0) await markClosedByPin(itemId);
-    return;
+    return null;
   }
   const rows = (await sql`
     UPDATE sub_portal_issues SET status = 'Reviewed', updated_at = now()
     WHERE btrim(issue_id) = ${itemId.slice(SUB.length)} AND lower(btrim(status)) IN ('', 'new') RETURNING id
   `) as unknown[];
   if (rows.length > 0) await markClosedByPin(itemId);
+  return null;
 }
 
 /** Call after Pin back: a report that this pin closed opens again. */
