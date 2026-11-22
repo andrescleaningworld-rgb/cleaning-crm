@@ -16,7 +16,7 @@ import { PIN_TYPES, isPinType, readPinTypes, type PinInfo, type PinType } from "
 import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";
 import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } from "@/lib/pg/board-sms";
 import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
-import { reopenTaskByPaper } from "@/lib/pg/cw-now-tasks";
+import { CwNowTaskError, reopenTaskByPaper, syncLinkedTasks } from "@/lib/pg/cw-now-tasks";
 import { finishToDoOfPin, reassignToDoOfPin, reopenToDoOfPin } from "@/lib/pg/board-todos";
 import { finishProblemOfPin, reopenProblemOfPin, syncProblems, textNewProblems } from "@/lib/pg/board-problems";
 import {
@@ -115,6 +115,8 @@ export async function GET(request: NextRequest) {
       return [];
     });
     if (newProblems.length > 0) after(() => textNewProblems(newProblems, request.nextUrl.origin));
+    // A complaint or extra job closed on its own page closes its CW Now task.
+    await syncLinkedTasks().catch((error) => console.error("[board] linked tasks:", error instanceof Error ? error.message : error));
     const settings = await getBoardSettings();
     const [managers, lists, statusOn, credit] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays), pinStatusReady(), smsCredit()]);
     const staffId = clean(identity?.staffId);
@@ -194,7 +196,12 @@ export async function POST(request: NextRequest) {
       // A CW Now to-do: Mark done / Cancel on its card. "Pin back" in the Done tray opens the task again too.
       if (kind === "cwnow") {
         if (body.on !== false) return refuse("Use Mark done or Cancel on the to-do.");
-        if (!(await reopenTaskByPaper(itemId, by))) return refuse("That to-do was not found.", 404);
+        try {
+          if (!(await reopenTaskByPaper(itemId, by))) return refuse("That to-do was not found.", 404);
+        } catch (error) {
+          if (error instanceof CwNowTaskError) return refuse(error.message, 409);
+          throw error;
+        }
         return NextResponse.json({ success: true });
       }
       // A to-do's pin: Done finishes the to-do too (a Visit goes to its form, so the visit is logged).

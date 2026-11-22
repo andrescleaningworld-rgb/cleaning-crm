@@ -8,6 +8,8 @@ export const ROLLOUT_SWITCHES = {
   SUB_NOTICES: "FEATURE_SUB_NOTICES",
   /** 4B: "My to-dos" in the Sub Portal, tasks on the sub's calendar, due-date colors on the task link, and print. */
   MY_TODOS: "FEATURE_MY_TODOS",
+  /** 4D: "This is an extra job" on a CW Now task, and "Send to team's CW Now" on a complaint. */
+  CW_LINKS: "FEATURE_CW_NOW_LINKS",
 } as const;
 
 export type RolloutSwitch = keyof typeof ROLLOUT_SWITCHES;

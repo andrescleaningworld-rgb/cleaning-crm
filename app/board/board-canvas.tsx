@@ -86,6 +86,7 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
       {/* A CW Now to-do: how far it got with the sub. */}
       {!tv && paper.cwNow ? (
         <>
+          {paper.cwNow.linkKind ? <span className={styles.badge}>{paper.cwNow.linkKind === "extra" ? "Extra job" : "Complaint"}</span> : null}
           {paper.cwNow.urgent ? <span className={styles.cwNowUrgent}>Urgent</span> : null}
           <span className={paper.cwNow.status === "needs_link" ? styles.cwNowNeeds : styles.cwNowSteps}>{cwNowStepsLine(paper.cwNow.status)}</span>
           {paper.cwNow.hasNote ? <span className={styles.meta}>📝 From the sub</span> : null}

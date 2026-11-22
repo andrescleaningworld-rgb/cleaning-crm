@@ -20,7 +20,21 @@ export const CW_NOW_STATUS_LABEL: Record<CwNowStatus, string> = {
 };
 
 /** What a task's paper carries on the board. Never the private link. */
-export type CwNowPaper = { taskId: number; status: CwNowStatus; urgent: boolean; noPhone: boolean; hasNote: boolean };
+export type CwNowPaper = { taskId: number; status: CwNowStatus; urgent: boolean; noPhone: boolean; hasNote: boolean; linkKind?: TaskLinkKind };
+
+/** What a task belongs to (migration 088): nothing, an extra job, or a complaint. */
+export type TaskLinkKind = "" | "extra" | "complaint";
+export const TASK_LINK_LABEL: Record<CrewLang, Record<Exclude<TaskLinkKind, "">, string>> = {
+  en: { extra: "Extra job", complaint: "Complaint" },
+  es: { extra: "Trabajo extra", complaint: "Queja" },
+  pt: { extra: "Trabalho extra", complaint: "Reclamação" },
+};
+export const NEEDS_PHOTO_ERROR = "needs_photo";
+export const NEEDS_PHOTO_WORDS: Record<CrewLang, string> = {
+  en: "Add a photo of the fixed problem first.",
+  es: "Primero agrega una foto del problema arreglado.",
+  pt: "Primeiro adicione uma foto do problema resolvido.",
+};
 
 /** "Sent ✓ · Seen · Done": how far it got, for the pin. */
 export function cwNowStepsLine(status: CwNowStatus): string {
@@ -223,6 +237,9 @@ export type PublicTask = {
   language: CrewLang;
   /** FEATURE_MY_TODOS: the due date is shown in its color (today yellow, late red, done green). */
   dueColors?: boolean;
+  linkKind?: TaskLinkKind;
+  /** A complaint: Done needs an after photo, and there is none yet. */
+  needsPhoto?: boolean;
   /** Photos can be added: the private file store is connected. */
   canAddPhoto: boolean;
   uploadFolder: string;
@@ -281,6 +298,7 @@ export type MyTodo = {
   doneAt: string;
   /** The private task page. */
   href: string;
+  kind?: TaskLinkKind;
 };
 
 export const MY_TODO_WORDS: Record<CrewLang, {
@@ -314,6 +332,7 @@ export type StaffTaskRow = {
   urgent: boolean;
   status: CwNowStatus;
   doneAt: string;
+  kind?: TaskLinkKind;
 };
 
 /** What the office's card on the board gets. */

@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { runTodoReminders } from "@/lib/pg/todo-reminders";
-import { runCwNowTaskReminders } from "@/lib/pg/cw-now-tasks";
+import { runCwNowTaskReminders, syncLinkedTasks } from "@/lib/pg/cw-now-tasks";
 import { boardReady } from "@/lib/pg/board";
 import { syncProblems, textNewProblems } from "@/lib/pg/board-problems";
 
@@ -17,6 +17,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
   const origin = new URL(request.url).origin;
+  // First close the tasks whose complaint or extra job was closed, so they get no reminder.
+  await syncLinkedTasks().catch((error) => console.error("[cron linked tasks]", error instanceof Error ? error.message : error));
   // The subs' CW Now to-do reminders run on the same clock. A problem there never stops the managers' reminders, or the other way round.
   const cwNow = await runCwNowTaskReminders(origin).catch((error) => {
     console.error("[cron cw-now reminders]", error instanceof Error ? error.message : error);

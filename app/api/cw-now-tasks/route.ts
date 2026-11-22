@@ -14,11 +14,16 @@ import {
   CwNowTaskError,
   assignedSubId,
   cancelTask,
+  complaintForTask,
   createTask,
+  cwNowLinksOn,
   cwNowTasksReady,
   deliverNewTask,
+  extraJobLink,
   listStaffTasks,
   listTaskSubs,
+  sendComplaintToCwNow,
+  setUpJobsFor,
   shareTask,
   staffFinishTask,
   staffTask,
@@ -36,8 +41,18 @@ export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
     if (params.get("view") === "form") {
       const accountId = clean(params.get("accountId"));
-      if (accountId) return NextResponse.json({ success: true, ready: true, assignedSubId: await assignedSubId(accountId) }, noStore);
-      return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateStoreOn(), linksOn: smsLinksOn() }, noStore);
+      if (accountId) {
+        const [subId, extraJobs] = await Promise.all([assignedSubId(accountId), (await cwNowLinksOn()) ? setUpJobsFor(accountId) : Promise.resolve([])]);
+        return NextResponse.json({ success: true, ready: true, assignedSubId: subId, extraJobs }, noStore);
+      }
+      return NextResponse.json({ success: true, ready: true, subs: await listTaskSubs(), privateFiles: privateStoreOn(), linksOn: smsLinksOn(), cwLinksOn: await cwNowLinksOn() }, noStore);
+    }
+    // "Send to team's CW Now" on a complaint: what its form needs.
+    if (params.get("view") === "complaint") {
+      if (!(await cwNowLinksOn())) return NextResponse.json({ success: true, ready: true, on: false }, noStore);
+      const facts = await complaintForTask(clean(params.get("key")));
+      if (!facts) return refuse("That complaint was not found.", 404);
+      return NextResponse.json({ success: true, ready: true, on: true, ...facts, subs: await listTaskSubs() }, noStore);
     }
     // The "Sub to-dos" view, the office calendar and the printouts.
     if (params.get("view") === "list") {
@@ -89,6 +104,23 @@ export async function POST(request: NextRequest) {
         dueTime: clean(body.dueTime),
         urgent: body.urgent === true,
         files,
+        by,
+        byStaffId,
+        link: body.extraJobId ? await extraJobLink(clean(body.extraJobId), clean(body.accountId), clean(body.subId)) : undefined,
+      });
+      after(() => deliverNewTask(id, origin));
+      return NextResponse.json({ success: true, id }, noStore);
+    }
+
+    if (action === "fromComplaint") {
+      const id = await sendComplaintToCwNow({
+        key: clean(body.key),
+        subId: clean(body.subId),
+        mode: clean(body.mode) === "move" ? "move" : "duplicate",
+        task: clean(body.task),
+        dueDate: clean(body.dueDate),
+        dueTime: clean(body.dueTime),
+        urgent: body.urgent === true,
         by,
         byStaffId,
       });

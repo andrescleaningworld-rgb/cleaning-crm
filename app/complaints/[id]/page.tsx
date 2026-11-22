@@ -27,6 +27,7 @@ import { complaintIsOpen } from "@/lib/responseClock";
 import { EMPTY_FIX_PROOF, FixProofFields, fixProofProblem, uploadFixPhotos, type FixProof } from "../../components/fix-proof";
 import PizzaTracker from "../../components/pizza-tracker";
 import NotifySubPicker from "../../components/notify-sub-picker";
+import SendToCwNow from "../../components/send-to-cw-now";
 import { Switch } from "@/app/settings/reminders/sections";
 import { COMPLAINT_STEPS, isReviewStatus, type ComplaintTrackView } from "@/lib/complaintSteps";
 
@@ -147,7 +148,7 @@ const barePhoto = (url: string) => url.split("?")[0];
 
 const NOTICE_WORD: Record<string, string> = { sent: "Sent", failed: "Failed", skipped: "Not sent", opened: "Opened WhatsApp", copied: "Copied", link_copied: "Link copied" };
 /** How a sub notice went: Text, Email, WhatsApp, Copy. */
-const NOTICE_CHANNEL: Record<string, string> = { text: "Text", email: "Email", whatsapp: "WhatsApp", copy: "Copy", link: "Complaint link" };
+const NOTICE_CHANNEL: Record<string, string> = { text: "Text", email: "Email", whatsapp: "WhatsApp", copy: "Copy", link: "Complaint link", cw_now: "CW Now" };
 
 type SaveResponse = {
   success?: boolean;
@@ -782,6 +783,10 @@ export default function ComplaintDetailPage() {
               <BigButton onClick={askNotifySub}>
                 {lastNotified ? "Notify sub again" : "Notify sub"}
               </BigButton>
+            </div>
+            {/* Nothing shows here until FEATURE_CW_NOW_LINKS is on. */}
+            <div style={{ marginTop: 12 }}>
+              <SendToCwNow complaintKey={complaintId} />
             </div>
             {subNotices.length > 0 ? (
               <ul className="ui-list-plain" style={{ marginTop: 12 }}>

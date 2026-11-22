@@ -487,6 +487,7 @@ function paperCwNow(row: PaperRow): Paper["cwNow"] {
     urgent: clean(data.urgent) === "1",
     noPhone: clean(data.noPhone) === "1",
     hasNote: clean(data.hasNote) === "1",
+    linkKind: clean(data.linkKind) === "extra" ? "extra" : clean(data.linkKind) === "complaint" ? "complaint" : "",
   };
 }
 

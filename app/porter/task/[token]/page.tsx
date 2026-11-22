@@ -8,7 +8,7 @@ import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
-import { DUE_STYLE, DUE_WORDS, TASK_WORDS, taskDueState, taskDueText, type PublicTask } from "@/lib/cwNowTasks";
+import { DUE_STYLE, DUE_WORDS, NEEDS_PHOTO_ERROR, NEEDS_PHOTO_WORDS, TASK_LINK_LABEL, TASK_WORDS, taskDueState, taskDueText, type PublicTask } from "@/lib/cwNowTasks";
 import { shrinkImage } from "@/lib/imageResize";
 import { sizeText } from "@/lib/accountDocuments";
 import { crewLinkStrings } from "../../[code]/strings";
@@ -91,11 +91,16 @@ export default function CwNowTaskPage() {
 
   async function post(body: Record<string, unknown>) {
     const response = await fetch(api, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const data = (await response.json().catch(() => ({}))) as { success?: boolean };
-    if (!response.ok || data.success !== true) throw new Error("failed");
+    const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+    if (!response.ok || data.success !== true) throw new Error(data.error === NEEDS_PHOTO_ERROR ? NEEDS_PHOTO_ERROR : "failed");
   }
 
   async function finish(who: string) {
+    // A complaint needs a photo of the fix before it can go to the office for review.
+    if (task?.needsPhoto) {
+      setPanel("");
+      return setError(NEEDS_PHOTO_WORDS[lang]);
+    }
     setBusy("done");
     setError("");
     try {
@@ -103,8 +108,8 @@ export default function CwNowTaskPage() {
       keepName(who);
       setPanel("");
       setDoneScreen(true);
-    } catch {
-      setError(words.failed);
+    } catch (failure) {
+      setError(failure instanceof Error && failure.message === NEEDS_PHOTO_ERROR ? NEEDS_PHOTO_WORDS[lang] : words.failed);
     } finally {
       setBusy("");
     }
@@ -177,6 +182,8 @@ export default function CwNowTaskPage() {
         <CrewHeader s={crew} lang={lang} onLangChange={setLang} locationName={task.accountName}>
           {task.location ? <p className="mt-1 text-lg font-semibold text-blue-100">{task.location}</p> : null}
         </CrewHeader>
+
+        {task.linkKind ? <p className="rounded-2xl bg-blue-800 px-4 py-3 text-center text-2xl font-black text-white">{TASK_LINK_LABEL[lang][task.linkKind]}</p> : null}
 
         {task.urgent && !isDone ? <p className="rounded-2xl bg-red-600 px-4 py-3 text-center text-2xl font-black text-white">⚠ {words.urgent}</p> : null}
 

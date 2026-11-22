@@ -6,7 +6,7 @@
 // nothing at all while the switch is off.
 
 import { useEffect, useState } from "react";
-import { DUE_STYLE, DUE_WORDS, MY_TODO_WORDS, isOpenTask, officeToday, taskDueState, taskDueText, type MyTodo } from "@/lib/cwNowTasks";
+import { DUE_STYLE, DUE_WORDS, MY_TODO_WORDS, TASK_LINK_LABEL, isOpenTask, officeToday, taskDueState, taskDueText, type MyTodo } from "@/lib/cwNowTasks";
 import type { UiLang } from "@/app/ui/words";
 
 const titleOf = (task: MyTodo, lang: UiLang) => (lang === "en" ? task.task : task.translations[lang] || task.task);
@@ -22,6 +22,7 @@ function TaskRow({ task, lang, today }: { task: MyTodo; lang: UiLang; today: str
         <div style={{ fontSize: 24, fontWeight: 900, lineHeight: 1.15 }}>{taskDueText(task.dueDate, task.dueTime, lang)}</div>
       </div>
       <p className="ui-strong" style={{ margin: 0, fontSize: 19 }}>{task.accountName}</p>
+      {task.kind ? <p style={{ margin: 0, color: "#003b7a", fontWeight: 900 }}>{TASK_LINK_LABEL[lang][task.kind]}</p> : null}
       {task.urgent && isOpenTask(task.status) ? <p style={{ margin: 0, color: "#b91c1c", fontWeight: 900 }}>⚠ {words.urgent}</p> : null}
       <p style={{ margin: 0, fontSize: 17, whiteSpace: "pre-wrap", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{titleOf(task, lang)}</p>
       <div className="ui-actions-row">

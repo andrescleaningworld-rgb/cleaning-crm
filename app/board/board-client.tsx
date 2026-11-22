@@ -41,6 +41,7 @@ import AccountPickerField, { type PickedAccount } from "../components/AccountPic
 import MarkateCheckNow from "../components/MarkateCheckNow";
 import { enterFullScreen } from "./full-screen";
 import NotifySubButton from "../components/notify-sub-button";
+import SendToCwNow from "../components/send-to-cw-now";
 import { checkinComplaintHref } from "@/lib/customerCheckin";
 import SmsCreditBanner from "../components/sms-credit-banner";
 import { ResponseClock } from "../components/response-clock";
@@ -545,6 +546,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
               {open.href ? <BigButton onClick={() => openDetails(open)}>{open.href.startsWith("/supply-orders/print") ? "📄 Open order" : open.href.startsWith("/complaints/") ? "Open complaint" : "Open full details"}</BigButton> : null}
               {/* A complaint (its own paper or one pinned by hand): tell the sub by email + text. */}
               {complaintKeyOf(open) ? <NotifySubButton key={complaintKeyOf(open)} complaintKey={complaintKeyOf(open)} /> : null}
+              {complaintKeyOf(open) ? <SendToCwNow key={`cw-${complaintKeyOf(open)}`} complaintKey={complaintKeyOf(open)} onSent={() => { setOpenKey(""); void load(); }} /> : null}
               {/* A customer check-in (Needs attention / OK): the New complaint form, filled in from it. */}
               {checkinIdOf(open) ? (
                 <BigButton kind="second" onClick={() => openDetails({ ...open, href: checkinComplaintHref({ checkinId: checkinIdOf(open), accountId: open.accountId, accountName: open.accountName }) })}>

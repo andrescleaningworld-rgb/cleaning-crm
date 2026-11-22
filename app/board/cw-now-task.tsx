@@ -26,7 +26,7 @@ import {
   type CwNowShareMethod,
   type StaffTask,
 } from "@/lib/cwNowTasks";
-import type { TaskSubOption } from "@/lib/pg/cw-now-tasks";
+import type { SetUpJob, TaskSubOption } from "@/lib/pg/cw-now-tasks";
 import styles from "./board.module.css";
 
 async function postTask(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -59,6 +59,11 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
   const [dueDate, setDueDate] = useState("");
   const [dueTime, setDueTime] = useState("");
   const [urgent, setUrgent] = useState(false);
+  // "This is an extra job": the account's jobs on Set up, from the real Extra Jobs page.
+  const [cwLinksOn, setCwLinksOn] = useState(false);
+  const [isExtra, setIsExtra] = useState(false);
+  const [extraJobs, setExtraJobs] = useState<SetUpJob[]>([]);
+  const [extraJobId, setExtraJobId] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -74,19 +79,23 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     setDueDate("");
     setDueTime("");
     setUrgent(false);
+    setIsExtra(false);
+    setExtraJobs([]);
+    setExtraJobId("");
     setFiles([]);
     setError("");
     setReady(null);
     let alive = true;
     fetch("/api/cw-now-tasks?view=form", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { success?: boolean; ready?: boolean; subs?: TaskSubOption[]; privateFiles?: boolean; linksOn?: boolean }) => {
+      .then((data: { success?: boolean; ready?: boolean; subs?: TaskSubOption[]; privateFiles?: boolean; linksOn?: boolean; cwLinksOn?: boolean }) => {
         if (!alive) return;
         if (data.success !== true) throw new Error("failed");
         setReady(data.ready === true);
         setSubs(data.subs ?? []);
         setPrivateFiles(data.privateFiles === true);
         setLinksOn(data.linksOn === true);
+        setCwLinksOn(data.cwLinksOn === true);
       })
       .catch(() => {
         if (alive) setError("The form did not load. Close it and try again.");
@@ -106,10 +115,12 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     let alive = true;
     fetch(`/api/cw-now-tasks?view=form&accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { assignedSubId?: string }) => {
+      .then((data: { assignedSubId?: string; extraJobs?: SetUpJob[] }) => {
         if (!alive) return;
         const id = data.assignedSubId ?? "";
         setSubId(id);
+        setExtraJobs(data.extraJobs ?? []);
+        setExtraJobId("");
         setSubNote(id ? "This account's sub. You can pick another." : "This account has no linked sub. Pick one.");
       })
       .catch(() => {
@@ -138,6 +149,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     if (!subId) return setError("Pick the sub.");
     if (!task.trim()) return setError("Write the task.");
     if (!dueDate) return setError("Pick the due date.");
+    if (isExtra && !extraJobId) return setError("Pick the extra job, or set one up first.");
     try {
       const uploaded: { url: string; name: string; size: number; contentType: string }[] = [];
       for (const [index, file] of files.entries()) {
@@ -146,7 +158,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         uploaded.push({ url: blob.url, name: file.name, size: file.size, contentType: file.type });
       }
       setBusy("Saving…");
-      await postTask({ action: "create", accountId: account.id, subId, task: task.trim(), dueDate, dueTime, urgent, files: uploaded });
+      await postTask({ action: "create", accountId: account.id, subId, task: task.trim(), dueDate, dueTime, urgent, files: uploaded, ...(isExtra ? { extraJobId } : {}) });
       showToast(linksOn ? CHEER.logged : "Saved. Open the pin and use Share to send the link.");
       onAdded();
       onClose();
@@ -183,6 +195,29 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
           ))}
         </SelectField>
         {sub && !sub.hasPhone ? <p className="ui-muted">No phone on file for this sub, so no text goes out. Use Share on the pin.</p> : null}
+        {cwLinksOn ? (
+          <div className="ui-stack">
+            <label className="ui-strong" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input type="checkbox" checked={isExtra} onChange={(event) => setIsExtra(event.target.checked)} style={{ width: 24, height: 24 }} />
+              This is an extra job
+            </label>
+            {isExtra ? (
+              extraJobs.length > 0 ? (
+                <SelectField label="Which extra job?" value={extraJobId} onChange={(event) => { const id = event.target.value; setExtraJobId(id); const job = extraJobs.find((entry) => entry.id === id); if (job && !task.trim()) setTask(job.description); }}>
+                  <option value="">Pick the job</option>
+                  {extraJobs.map((job) => (
+                    <option key={job.id} value={job.id} disabled={job.inHouse}>
+                      {job.jobNumber}: {job.description.slice(0, 50)}{job.inHouse ? " (In-house)" : ""}
+                    </option>
+                  ))}
+                </SelectField>
+              ) : (
+                <p className="ui-muted">{account ? "This account has no extra job on Set up." : "Pick the account first."}</p>
+              )
+            ) : null}
+            {isExtra ? <BigButton kind="second" href="/extra-jobs/new?from=board">Set up a new extra job</BigButton> : null}
+          </div>
+        ) : null}
         <TextAreaField label="Task" rows={5} maxLength={TASK_MAX} value={task} onChange={(event) => setTask(event.target.value)} />
         <Field label="Due date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
         <Field label="Time (optional)" type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} />

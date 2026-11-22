@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import { getSql } from "@/lib/db";
 import { isCrewLang, type CrewLang } from "@/lib/crewLinkPeople";
 import {
+  NEEDS_PHOTO_ERROR,
   TASK_EMAIL_SUBJECT,
   TASK_FILE_EXTENSIONS,
   TASK_MAX,
@@ -29,6 +30,7 @@ import {
   type CwNowStatus,
   type MyTodo,
   type StaffTaskRow,
+  type TaskLinkKind,
   type TaskListStatus,
   type PublicTask,
   type StaffTask,
@@ -44,6 +46,13 @@ import { translateTo, translateToEnglish } from "@/lib/translate";
 import { staffContact, textBoardPerson } from "@/lib/pg/board-sms";
 import { todoLocation } from "@/lib/pg/todo-extras";
 import { officeClock } from "@/lib/pg/todo-reminders";
+import { closeComplaint } from "@/lib/data/complaints";
+import { addComplaintEvent, complaintRowId, listComplaintEvents } from "@/lib/pg/complaint-events";
+import { markFirstResponse } from "@/lib/pg/complaint-response";
+import { recordFix } from "@/lib/pg/complaint-fix";
+import { notifyReadyToReview } from "@/lib/complaintReviewNotice";
+import { addJobPhoto, finishExtraJob, getExtraJob, stampEmailed } from "@/lib/pg/extra-jobs";
+import { sendExtraJobDone } from "@/lib/extraJobEmail";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const iso = (value: string | Date | null | undefined) => (value ? new Date(value).toISOString() : "");
@@ -88,6 +97,11 @@ type TaskRow = {
   calendar_sync_failed: boolean;
   reminded_before_at: string | Date | null;
   reminded_day_at: string | Date | null;
+  /** Migration 088; undefined before it runs. */
+  extra_job_id?: string | number | null;
+  complaint_row_id?: string | number | null;
+  complaint_mode?: string;
+  task_page?: Record<string, unknown> | null;
   sub_phone: string | null;
   sub_email: string | null;
   sub_language: string | null;
@@ -166,7 +180,7 @@ export async function assignedSubId(accountId: string): Promise<string> {
 
 export type NewTaskFile = { url: string; name: string; size: number; contentType: string };
 
-export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string }): Promise<number> {
+export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string; link?: TaskLink }): Promise<number> {
   const task = clean(input.task).slice(0, TASK_MAX);
   if (!task) throw new CwNowTaskError("Write the task.");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw new CwNowTaskError("Pick the due date.");
@@ -206,6 +220,7 @@ export async function createTask(input: { accountId: string; subId: string; task
     urgent: input.urgent ? "1" : "",
     noPhone: clean(sub.phone) ? "" : "1",
     hasNote: "",
+    linkKind: input.link?.extraJobId ? "extra" : input.link?.complaintRowId ? "complaint" : "",
   };
 
   // All or nothing: the task, its files, its history and its paper.
@@ -218,6 +233,9 @@ export async function createTask(input: { accountId: string; subId: string; task
     sql`INSERT INTO cw_now_task_events (task_id, event, by_name) VALUES (${id}, 'created', ${input.by})`,
     sql`INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
         VALUES ('cwnow', ${paperId(id)}, ${shortTask(task)}, ${account.id}, ${accountName}, '', 'pinned', ${JSON.stringify(data)}::jsonb, ${input.by}, now(), '')`,
+    ...(input.link
+      ? [sql`UPDATE cw_now_tasks SET extra_job_id = ${input.link.extraJobId ?? null}, complaint_row_id = ${input.link.complaintRowId ?? null}, complaint_mode = ${input.link.complaintMode ?? ""} WHERE id = ${id}`]
+      : []),
   ]);
   return id;
 }
@@ -231,13 +249,21 @@ export async function deliverNewTask(taskId: number, origin: string): Promise<vo
     const translations = { ...(es ? { es } : {}), ...(pt ? { pt } : {}) };
     if (Object.keys(translations).length > 0) await getSql()`UPDATE cw_now_tasks SET translations = ${JSON.stringify(translations)}::jsonb WHERE id = ${taskId}`;
     await addCalendarEvent(row);
-    await textSub(row, "new", origin);
+    let reached = await textSub(row, "new", origin);
     // FEATURE_SUB_NOTICES: the private link also goes by email. It counts as Sent, with its line in the history.
     if (rolloutOn("SUB_NOTICES") && clean(row.sub_email)) {
-      await shareTask(taskId, "email", "CW Now", origin).catch(async (error) => {
-        console.error("[cw-now task] email:", error instanceof Error ? error.message : error);
-        await addEvent(taskId, "share", { method: "email", detail: "Failed" });
-      });
+      await shareTask(taskId, "email", "CW Now", origin)
+        .then(() => {
+          reached = true;
+        })
+        .catch(async (error) => {
+          console.error("[cw-now task] email:", error instanceof Error ? error.message : error);
+          await addEvent(taskId, "share", { method: "email", detail: "Failed" });
+        });
+    }
+    // A complaint's tracker: "Sent to team", only when something really went out.
+    if (row.complaint_row_id) {
+      await addComplaintEvent({ complaintId: Number(row.complaint_row_id), kind: "sub_notified", channel: "cw_now", status: reached ? "sent" : "skipped", detail: reached ? `CW Now task to ${row.sub_name}` : `CW Now task to ${row.sub_name}: not sent yet, use Share`, by: row.created_by || "System" });
     }
   } catch (error) {
     console.error("[cw-now task] delivery:", error instanceof Error ? error.message : error);
@@ -407,10 +433,13 @@ async function tellCreator(row: TaskRow, who: string, byStaffId: string, origin:
 export async function staffFinishTask(taskId: number, by: string, byStaffId: string, origin: string): Promise<(() => Promise<void>) | null> {
   const row = await taskById(taskId);
   if (!row) throw new CwNowTaskError("That task was not found.");
+  if (await complaintNeedsPhoto(row)) throw new CwNowTaskError("This complaint needs an after photo from the team. Or close it on the complaint's page.");
   if (!(await finishTask(row, by, `${by} (office)`))) return null;
+  const linked = await finishLinkedRecord(row, by, origin);
   return async () => {
     await setCalendarStatus(row, "Done").catch((error) => console.error("[cw-now task] calendar:", error));
     await tellCreator(row, by, byStaffId, origin);
+    await linked?.();
   };
 }
 
@@ -422,6 +451,7 @@ export async function cancelTask(taskId: number, by: string): Promise<(() => Pro
   if (updated.length === 0) return null;
   await sql`UPDATE handoff_items SET data = data || '{"taskStatus":"cancelled"}'::jsonb, board_done_at = now(), board_done_by = ${`Cancelled by ${by}`.slice(0, 120)} WHERE kind = 'cwnow' AND item_id = ${paperId(taskId)}`;
   await addEvent(taskId, "cancelled", { by });
+  await restoreMovedComplaint(row);
   return async () => {
     if (!row.calendar_event_id) return;
     const result = await deleteCalendarEventForToDo(row.calendar_event_id);
@@ -433,6 +463,8 @@ export async function cancelTask(taskId: number, by: string): Promise<(() => Pro
 export async function reopenTaskByPaper(itemId: string, by: string): Promise<boolean> {
   const taskId = Number(/^task-(\d+)$/.exec(itemId)?.[1] ?? 0);
   if (!taskId) return false;
+  const linkedRow = await taskById(taskId);
+  if (linkedRow?.complaint_row_id || linkedRow?.extra_job_id) throw new CwNowTaskError("This to-do is tied to its complaint or extra job. Send a new one from there.");
   const sql = getSql();
   const updated = (await sql`
     UPDATE cw_now_tasks
@@ -474,6 +506,8 @@ export async function publicTask(token: string): Promise<PublicTask | null> {
     status: row.status,
     language: langOf(row),
     dueColors: rolloutOn("MY_TODOS"),
+    linkKind: linkKindOf(row),
+    needsPhoto: Boolean(row.complaint_row_id) && !files.some((file) => file.source === "sub"),
     canAddPhoto: privateStoreOn(),
     uploadFolder: taskSubFolder(taskId),
     files: files.filter((file) => file.source === "office").map((file) => ({ id: Number(file.id), name: clean(file.file_name) || "File", url: file.file_url, size: Number(file.file_size) || 0, contentType: clean(file.content_type) })),
@@ -510,6 +544,7 @@ export async function addNoteFromLink(token: string, name: string, text: string)
   const taskId = taskIdOf(row);
   const eventId = await addEvent(taskId, "note", { detail: note, by: clean(name).slice(0, 80) });
   await patchPaper(taskId, { hasNote: "1" });
+  await teamOnIt(row, clean(name));
   return async () => {
     const english = await translateToEnglish(note).catch(() => null);
     if (english && english.english !== note) await getSql()`UPDATE cw_now_task_events SET detail_en = ${english.english} WHERE id = ${eventId}`;
@@ -530,6 +565,7 @@ export async function addPhotoFromLink(token: string, name: string, file: NewTas
   `;
   await addEvent(taskId, "photo", { by: who });
   await patchPaper(taskId, { hasNote: "1" });
+  await teamOnIt(row, who);
   return true;
 }
 
@@ -537,10 +573,13 @@ export async function doneFromLink(token: string, name: string, origin: string):
   const row = await taskByToken(token);
   if (!row || !isOpenTask(row.status)) return null;
   const who = clean(name).slice(0, 80) || clean(row.sub_name) || "The sub";
+  if (await complaintNeedsPhoto(row)) throw new CwNowTaskError(NEEDS_PHOTO_ERROR);
   if (!(await finishTask(row, who, `${who} (CW Now)`))) return null;
+  const linked = await finishLinkedRecord(row, who, origin);
   return async () => {
     await setCalendarStatus(row, "Done").catch((error) => console.error("[cw-now task] calendar:", error));
     await tellCreator(row, who, "", origin);
+    await linked?.();
   };
 }
 
@@ -592,8 +631,225 @@ export async function listMyTodos(subId: string, options: { withLocation?: boole
       status: row.status,
       doneAt: iso(row.done_at),
       href: `/porter/task/${row.token}`,
+      kind: linkKindOf(row),
     };
   });
+}
+
+/* ---------- extra jobs and complaints (migration 088, FEATURE_CW_NOW_LINKS) ---------- */
+
+export type TaskLink = { extraJobId?: number; complaintRowId?: number; complaintMode?: "move" | "duplicate" };
+export type SetUpJob = { id: string; jobNumber: string; description: string; jobDate: string; inHouse: boolean; subId: string };
+
+const linkKindOf = (row: Pick<TaskRow, "extra_job_id" | "complaint_row_id">): TaskLinkKind => (row.extra_job_id ? "extra" : row.complaint_row_id ? "complaint" : "");
+const MOVED = "Moved to CW Now";
+const CLOSED_COMPLAINT = /^(closed|resolved|merged)/i;
+
+let linksColumn = false;
+export async function cwNowLinksReady(): Promise<boolean> {
+  if (linksColumn) return true;
+  const rows = (await getSql()`SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'cw_now_tasks' AND column_name = 'complaint_row_id' LIMIT 1`) as unknown[];
+  linksColumn = rows.length > 0;
+  return linksColumn;
+}
+
+/** The switch is on and migration 088 is in. */
+export async function cwNowLinksOn(): Promise<boolean> {
+  return rolloutOn("CW_LINKS") && (await cwNowTasksReady()) && (await cwNowLinksReady());
+}
+
+/** The account's extra jobs on Set up. Never their prices or the sub's pay. */
+export async function setUpJobsFor(accountId: string): Promise<SetUpJob[]> {
+  const rows = (await getSql()`
+    SELECT id::text AS id, job_number, description, job_date::text AS job_date, sub_id, to_jsonb(extra_jobs)->>'performed_by' AS performed_by
+    FROM extra_jobs WHERE account_id = ${accountId} AND status = 'setup' ORDER BY job_date, id
+  `) as { id: string; job_number: string; description: string; job_date: string; sub_id: string; performed_by: string | null }[];
+  return rows.map((row) => ({ id: row.id, jobNumber: row.job_number, description: row.description, jobDate: row.job_date, inHouse: row.performed_by === "in_house", subId: clean(row.sub_id) }));
+}
+
+/** Checks the job can be sent to this sub. The job stays on the Extra Jobs page: the task only points at it. */
+export async function extraJobLink(jobId: string, accountId: string, subId: string): Promise<TaskLink> {
+  if (!(await cwNowLinksOn())) throw new CwNowTaskError("Extra job tasks are not turned on here yet.");
+  const job = (await setUpJobsFor(accountId)).find((entry) => entry.id === jobId);
+  if (!job) throw new CwNowTaskError("Pick an extra job on Set up for this account.");
+  if (job.inHouse) throw new CwNowTaskError("This job is In-house, so it does not go to a sub.");
+  if (job.subId && job.subId !== subId) throw new CwNowTaskError("This extra job is set up for another sub. Pick that sub, or change the job first.");
+  const taken = (await getSql()`SELECT 1 FROM cw_now_tasks WHERE extra_job_id = ${Number(jobId)} AND status <> 'cancelled' LIMIT 1`) as unknown[];
+  if (taken.length > 0) throw new CwNowTaskError("This extra job already has a CW Now task.");
+  return { extraJobId: Number(jobId) };
+}
+
+type ComplaintFacts = { id: number; key: string; sheet_row: number; status: string; account_ref: string | null; account_name: string; issue: string };
+
+async function complaintFacts(rowId: number): Promise<ComplaintFacts | null> {
+  const rows = (await getSql()`
+    SELECT id, COALESCE(NULLIF(btrim(complaint_id), ''), legacy_key) AS key, sheet_row, status, account_ref, account_name, issue
+    FROM complaints WHERE id = ${rowId} LIMIT 1
+  `) as ComplaintFacts[];
+  return rows[0] ?? null;
+}
+
+/** What "Send to team's CW Now" needs. Null when there is no such complaint. */
+export async function complaintForTask(key: string) {
+  const rowId = await complaintRowId(key);
+  if (rowId === null) return null;
+  const facts = await complaintFacts(rowId);
+  if (!facts) return null;
+  const open = (await getSql()`SELECT id, sub_name FROM cw_now_tasks WHERE complaint_row_id = ${rowId} AND status NOT IN ('done', 'cancelled') LIMIT 1`) as { id: number; sub_name: string }[];
+  return {
+    accountId: clean(facts.account_ref),
+    accountName: clean(facts.account_name),
+    issue: clean(facts.issue),
+    closed: CLOSED_COMPLAINT.test(clean(facts.status)),
+    assignedSubId: facts.account_ref ? await assignedSubId(facts.account_ref) : "",
+    openTask: open[0] ? { id: Number(open[0].id), subName: clean(open[0].sub_name) } : null,
+  };
+}
+
+/**
+ * A complaint goes to a sub's CW Now. It stays ONE complaint, so it never
+ * counts twice on the sub score: this only makes a task that points at it.
+ * Move: its pin leaves Complaints until the task ends. Duplicate: it stays.
+ */
+export async function sendComplaintToCwNow(input: { key: string; subId: string; mode: "move" | "duplicate"; task: string; dueDate: string; dueTime: string; urgent: boolean; by: string; byStaffId: string }): Promise<number> {
+  if (!(await cwNowLinksOn())) throw new CwNowTaskError("This is not turned on here yet.");
+  const rowId = await complaintRowId(input.key);
+  const facts = rowId === null ? null : await complaintFacts(rowId);
+  if (!facts || rowId === null) throw new CwNowTaskError("That complaint was not found.");
+  if (CLOSED_COMPLAINT.test(clean(facts.status))) throw new CwNowTaskError("This complaint is already resolved or closed.");
+  if (!facts.account_ref) throw new CwNowTaskError("Link this complaint to an account first.");
+  const taken = (await getSql()`SELECT 1 FROM cw_now_tasks WHERE complaint_row_id = ${rowId} AND status NOT IN ('done', 'cancelled') LIMIT 1`) as unknown[];
+  if (taken.length > 0) throw new CwNowTaskError("This complaint already has an open CW Now task.");
+  const id = await createTask({
+    accountId: facts.account_ref,
+    subId: input.subId,
+    task: clean(input.task) || clean(facts.issue),
+    dueDate: input.dueDate,
+    dueTime: input.dueTime,
+    urgent: input.urgent,
+    files: [],
+    by: input.by,
+    byStaffId: input.byStaffId,
+    link: { complaintRowId: rowId, complaintMode: input.mode },
+  });
+  if (input.mode === "move") {
+    await getSql()`
+      UPDATE handoff_items SET board_done_at = now(), board_done_by = ${MOVED}
+      WHERE kind = 'complaint' AND item_id = ${facts.key} AND board_pinned_at IS NOT NULL AND board_done_at IS NULL
+    `;
+  }
+  return id;
+}
+
+/** A moved complaint's pin comes back to the Complaints square. */
+async function restoreMovedComplaint(row: TaskRow): Promise<void> {
+  if (!row.complaint_row_id || row.complaint_mode !== "move") return;
+  const facts = await complaintFacts(Number(row.complaint_row_id));
+  if (!facts) return;
+  await getSql()`UPDATE handoff_items SET board_done_at = NULL, board_done_by = '' WHERE kind = 'complaint' AND item_id = ${facts.key} AND board_done_by = ${MOVED}`;
+}
+
+const subPhotosOf = async (taskId: number) => (await getSql()`SELECT file_url, file_name FROM cw_now_task_files WHERE task_id = ${taskId} AND source = 'sub' ORDER BY created_at, id`) as { file_url: string; file_name: string }[];
+
+/** A still-open complaint needs a photo of the fix before Done, the same rule as the Sub Portal. */
+async function complaintNeedsPhoto(row: TaskRow): Promise<boolean> {
+  if (!row.complaint_row_id) return false;
+  const facts = await complaintFacts(Number(row.complaint_row_id));
+  if (!facts || CLOSED_COMPLAINT.test(clean(facts.status))) return false;
+  return (await subPhotosOf(taskIdOf(row))).length === 0;
+}
+
+/** The sub wrote or sent a photo: the complaint's tracker moves to "Team on it" (once). */
+async function teamOnIt(row: TaskRow, who: string): Promise<void> {
+  if (!row.complaint_row_id) return;
+  try {
+    const rowId = Number(row.complaint_row_id);
+    const name = clean(who) || clean(row.sub_name);
+    await markFirstResponse(rowId, name);
+    const events = await listComplaintEvents(rowId, ["acknowledged"]);
+    if (!events.some((event) => /from the sub/i.test(event.detail))) await addComplaintEvent({ complaintId: rowId, kind: "acknowledged", detail: "Got it from the sub (CW Now).", by: name });
+  } catch (error) {
+    console.error("[cw-now task] team on it:", error instanceof Error ? error.message : error);
+  }
+}
+
+/**
+ * The task is Done: its complaint goes to "Ready to review" (the office still
+ * closes it and tells the customer), or its extra job goes to "Ready to
+ * invoice". Returns the notice to send afterwards. A failure is logged and
+ * never undoes the sub's Done.
+ */
+async function finishLinkedRecord(row: TaskRow, who: string, origin: string): Promise<(() => Promise<void>) | null> {
+  try {
+    const taskId = taskIdOf(row);
+    const noteRows = (await getSql()`SELECT detail FROM cw_now_task_events WHERE task_id = ${taskId} AND event = 'note' ORDER BY at, id`) as { detail: string }[];
+    const note = noteRows.map((entry) => clean(entry.detail)).filter(Boolean).join(" / ").slice(0, 900);
+    const photos = await subPhotosOf(taskId);
+
+    if (row.extra_job_id) {
+      const jobId = String(row.extra_job_id);
+      const job = await getExtraJob(jobId);
+      if (!job || job.status !== "setup") return null;
+      for (const photo of photos) await addJobPhoto(jobId, photo.file_url, clean(photo.file_name) || "photo", who);
+      const finished = await finishExtraJob(jobId, who, note);
+      if (typeof finished === "string") return null;
+      return async () => {
+        const sent = await sendExtraJobDone(finished, origin).catch(() => false);
+        if (sent) await stampEmailed(finished.id, "done");
+      };
+    }
+
+    if (row.complaint_row_id) {
+      const rowId = Number(row.complaint_row_id);
+      const facts = await complaintFacts(rowId);
+      if (!facts) return null;
+      await restoreMovedComplaint(row);
+      if (CLOSED_COMPLAINT.test(clean(facts.status))) return null;
+      await closeComplaint({ rowNumber: facts.sheet_row, id: facts.key, status: "Resolved by Sub", resolution: `Resolved by ${who}: ${note || "CW Now task done"}` });
+      await markFirstResponse(rowId, who);
+      await recordFix({ rowId, photos: photos.map((photo) => photo.file_url), by: who });
+      return () => notifyReadyToReview({ rowId, origin, teamName: who, note, photoCount: photos.length });
+    }
+  } catch (error) {
+    console.error("[cw-now task] linked record:", error instanceof Error ? error.message : error);
+    await addEvent(taskIdOf(row), "note", { detail: "The linked complaint or extra job did not update. Check it.", by: "System" }).catch(() => 0);
+  }
+  return null;
+}
+
+/** A complaint or extra job finished on its own page: its open task closes, so the sub gets no more reminders. */
+export async function syncLinkedTasks(): Promise<void> {
+  if (!(await cwNowTasksReady()) || !(await cwNowLinksReady())) return;
+  const rows = (await getSql().query(
+    `${SELECT_TASK}
+     LEFT JOIN complaints c ON c.id = t.complaint_row_id
+     LEFT JOIN extra_jobs j ON j.id = t.extra_job_id
+     WHERE t.status NOT IN ('done', 'cancelled')
+       AND ((t.complaint_row_id IS NOT NULL AND lower(btrim(c.status)) ~ '^(closed|resolved|merged)') OR (t.extra_job_id IS NOT NULL AND j.status <> 'setup'))
+     LIMIT 50`
+  )) as TaskRow[];
+  for (const row of rows) {
+    if (row.extra_job_id) {
+      const job = await getExtraJob(String(row.extra_job_id));
+      if (job?.status === "cancelled") {
+        const follow = await cancelTask(taskIdOf(row), "Extra job cancelled");
+        await follow?.();
+        continue;
+      }
+    }
+    const label = row.extra_job_id ? "Extra job done" : "Complaint closed";
+    if (await finishTask(row, label, label)) {
+      await restoreMovedComplaintForReview(row);
+      await setCalendarStatus(row, "Done").catch((error) => console.error("[cw-now task] calendar:", error));
+    }
+  }
+}
+
+/** Only a complaint waiting for review comes back up; a closed one stays in the Done tray. */
+async function restoreMovedComplaintForReview(row: TaskRow): Promise<void> {
+  if (!row.complaint_row_id) return;
+  const facts = await complaintFacts(Number(row.complaint_row_id));
+  if (facts && /^resolved by sub/i.test(clean(facts.status))) await restoreMovedComplaint(row);
 }
 
 /* ---------- the office's "Sub to-dos" list ---------- */
@@ -636,6 +892,7 @@ export async function listStaffTasks(filter: { id?: number; subId?: string; acco
       urgent: row.priority === "urgent",
       status: row.status,
       doneAt: iso(row.done_at),
+      kind: linkKindOf(row),
     };
   });
 }

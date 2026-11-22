@@ -114,7 +114,7 @@ function SubTodos() {
                   <span style={{ background: DUE_STYLE[due].background, color: DUE_STYLE[due].color, borderRadius: 8, padding: "4px 10px", fontWeight: 900, fontSize: 18 }}>
                     {DUE_WORDS.en[due]} · {taskDueText(task.dueDate, task.dueTime, "en")}
                   </span>
-                  <span className="ui-strong">{task.accountName}{task.urgent && task.status !== "done" ? " ⚠ Urgent" : ""}</span>
+                  <span className="ui-strong">{task.accountName}{task.kind ? ` · ${task.kind === "extra" ? "Extra job" : "Complaint"}` : ""}{task.urgent && task.status !== "done" ? " ⚠ Urgent" : ""}</span>
                   <span className="ui-muted">{task.subName} · {CW_NOW_STATUS_LABEL[task.status]}</span>
                   <span style={{ whiteSpace: "pre-wrap", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{task.task}</span>
                 </button>
