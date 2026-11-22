@@ -8,7 +8,7 @@
 
 import { getSql } from "@/lib/db";
 import { sendHtmlEmail } from "@/lib/email";
-import { sendPush } from "@/lib/push";
+import { sendPush } from "@/lib/notify";
 import { managerKey } from "@/lib/managerNames";
 import { addComplaintEvent } from "@/lib/pg/complaint-events";
 

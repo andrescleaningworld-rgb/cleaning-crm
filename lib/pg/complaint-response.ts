@@ -12,7 +12,7 @@ import { getFeatureSetting } from "@/lib/pg/feature-settings";
 import { clockState, minutesLabel } from "@/lib/responseClock";
 import { complaintRowId, addComplaintEvent } from "@/lib/pg/complaint-events";
 import { staffContact, textBoardPerson } from "@/lib/pg/board-sms";
-import { sendPush } from "@/lib/push";
+import { sendPush } from "@/lib/notify";
 import { forgetRiskCache } from "@/lib/pg/account-risk";
 
 const clean = (value: unknown) => String(value ?? "").trim();

@@ -10,9 +10,9 @@
 
 import { getSql } from "@/lib/db";
 import { PAPER_KINDS, type PaperKind } from "@/lib/board";
-import { appendSmsLog } from "@/lib/data/todos";
+import { logText, sendText } from "@/lib/notify";
 import { listBoardManagers } from "@/lib/pg/board";
-import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
+import { sanitizeSmsText, smsLastLine } from "@/lib/sms";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 
@@ -132,25 +132,10 @@ export async function textBoardPerson(contact: StaffContact, text: string, paper
   if (!contact.phone) {
     console.debug(`[sms] skip ${routeContext}: "${contact.name}" has no phone on file`);
     // Written to the text log too, so a missing text has a reason (the paper also says it: lib/pg/board.ts withNoPhone).
-    try {
-      await appendSmsLog({ toDoId: `board:${paperId}`, managerPhone: "", textId: "", status: "Skipped: no phone" });
-    } catch (error) {
-      console.error("[sms] failed to write SmsLog row:", error instanceof Error ? error.message : error);
-    }
+    await logText({ toDoId: `board:${paperId}`, managerPhone: "", textId: "", status: "Skipped: no phone" });
     return false;
   }
   const message = sanitizeSmsText(text, Infinity);
-  const result = await sendSms(contact.phone, message, routeContext);
-  try {
-    await appendSmsLog({
-      toDoId: `board:${paperId}`,
-      managerPhone: contact.phone,
-      textId: result.textId !== undefined ? String(result.textId) : "",
-      status: result.success ? "sent" : "failed",
-      quotaRemaining: result.quotaRemaining,
-    });
-  } catch (error) {
-    console.error("[sms] failed to write SmsLog row:", error instanceof Error ? error.message : error);
-  }
+  const result = await sendText(contact.phone, message, routeContext, `board:${paperId}`);
   return result.success;
 }

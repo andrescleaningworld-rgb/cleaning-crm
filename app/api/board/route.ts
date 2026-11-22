@@ -10,7 +10,7 @@ import type { BoardData, BoardMe } from "@/lib/board";
 import { smsCredit } from "@/lib/pg/sms-credit";
 import { NOTE_BOXES, STATUS_NOTE_MAX, isPinStatus } from "@/lib/board";
 import { setPaperStatus, statusHistory } from "@/lib/pg/pin-status";
-import { sendPush } from "@/lib/push";
+import { sendPush } from "@/lib/notify";
 import { markFirstResponse } from "@/lib/pg/complaint-response";
 import { PIN_TYPES, isPinType, readPinTypes, type PinInfo, type PinType } from "@/lib/boardPins";
 import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady, savePinTypes, syncPinnedTodos, unpinRecord } from "@/lib/pg/board-pins";

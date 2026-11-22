@@ -68,7 +68,7 @@ async function fetchNotificationsFromAppsScript(): Promise<NotificationsPayload>
 }
 
 export async function GET() {
-  if (!GOOGLE_SCRIPT_URL) {
+  if (!GOOGLE_SCRIPT_URL && !subPortalOnPostgres()) {
     return NextResponse.json(
       {
         success: false,

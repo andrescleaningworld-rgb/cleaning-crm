@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     if (action === "problem") {
       const problemType = clean(body.problemType, 80);
       if (!problemType) return refuse("Pick what happened.");
-      const item = await startSubRequest({ ...base, kind: "issue", data: { problemType, notes: clean(body.notes), photoUrl: toStoredUrl(clean(body.photoUrl)) } });
+      const item = await startSubRequest({ ...base, kind: "issue", data: { issueId: clean(body.issueId, 120), problemType, notes: clean(body.notes), photoUrl: toStoredUrl(clean(body.photoUrl)) } });
       return filesJson({ success: true, id: item.itemId });
     }
 

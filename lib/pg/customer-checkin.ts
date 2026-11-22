@@ -31,7 +31,7 @@
 import { getSql } from "@/lib/db";
 import { logActivity, logCustomerActivity } from "@/lib/activityLog";
 import { linesToHtml, sendHtmlEmail } from "@/lib/email";
-import { sendPush } from "@/lib/push";
+import { sendPush } from "@/lib/notify";
 import { accountLive } from "@/lib/pg/account-live";
 import { managerSquareFinder, pinOnce, takeDownPapers, updatePaperNotes } from "@/lib/pg/auto-pins";
 import { notifyBoardSquare } from "@/lib/pg/board-sms";

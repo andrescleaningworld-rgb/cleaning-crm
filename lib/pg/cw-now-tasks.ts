@@ -39,7 +39,7 @@ import {
 import { privateStoreOn, storedPathname, toStoredUrl } from "@/lib/files";
 import { createCalendarEventForToDo, deleteCalendarEventForToDo, updateCalendarEventForToDo } from "@/lib/googleCalendar";
 import { sendSubcontractorNotification } from "@/lib/email";
-import { sendPush } from "@/lib/push";
+import { sendPush } from "@/lib/notify";
 import { smsLastLine, smsLinksOn } from "@/lib/sms";
 import { rolloutOn } from "@/lib/rollout";
 import { translateTo, translateToEnglish } from "@/lib/translate";

@@ -1,6 +1,5 @@
 import { after, NextRequest, NextResponse } from "next/server";
 import {
-  appendSmsLog,
   appendToDo,
   appendToDos,
   fetchToDos,
@@ -23,8 +22,8 @@ import {
   type ToDoCalendarInput,
 } from "@/lib/googleCalendar";
 import { normalizeToDoPriority } from "@/lib/toDoPriority";
-import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
-import { sendPush } from "@/lib/push";
+import { sanitizeSmsText, smsLastLine } from "@/lib/sms";
+import { logText, sendPush, sendText } from "@/lib/notify";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { logActivity } from "@/lib/activityLog";
 import { todoEventExtras, todoLocation } from "@/lib/pg/todo-extras";
@@ -40,11 +39,7 @@ async function logSmsAttempt(
   status: "sent" | "failed",
   quotaRemaining?: number
 ): Promise<void> {
-  try {
-    await appendSmsLog({ toDoId, managerPhone, textId, status, quotaRemaining });
-  } catch (error) {
-    console.error("[sms] failed to write SmsLog row:", error instanceof Error ? error.message : error);
-  }
+  await logText({ toDoId, managerPhone, textId, status, quotaRemaining });
 }
 
 // Looks up a manager's phone/managerId by name (the same case-insensitive
@@ -135,14 +130,7 @@ async function sendToDoSms(
   }
 
   const message = sanitizeSmsText(rawMessage, Infinity);
-  const result = await sendSms(manager.phone, message, routeContext);
-  await logSmsAttempt(
-    id,
-    manager.phone,
-    result.textId !== undefined ? String(result.textId) : "",
-    result.success ? "sent" : "failed",
-    result.quotaRemaining
-  );
+  await sendText(manager.phone, message, routeContext, id);
 }
 
 // Push has no SmsLog-style row/badge — there's no existing per-to-do push

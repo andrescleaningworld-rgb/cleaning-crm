@@ -114,6 +114,12 @@ async function runSync(): Promise<NewPin[]> {
     FROM sub_portal_issues i
     WHERE h.kind = 'note' AND h.item_id = '${SUB}' || btrim(i.issue_id) AND h.board_pinned_at IS NOT NULL AND h.board_done_at IS NULL
       AND lower(btrim(i.status)) NOT IN ('', 'new')`);
+  // The same report on the manager's My work closes with it.
+  await sql.query(`
+    UPDATE handoff_items h SET step = 'handled', step_since = now(), done_at = now()
+    FROM sub_portal_issues i
+    WHERE h.kind = 'issue' AND h.done_at IS NULL AND COALESCE(h.data->>'issueId', '') <> '' AND h.data->>'issueId' = btrim(i.issue_id)
+      AND lower(btrim(i.status)) NOT IN ('', 'new')`);
   await sql.query(`
     UPDATE handoff_items h SET board_done_at = now(), board_done_by = 'Closed in Portal Requests'
     FROM portal_requests r
@@ -178,7 +184,10 @@ export async function finishProblemOfPin(kind: string, itemId: string): Promise<
     UPDATE sub_portal_issues SET status = 'Reviewed', updated_at = now()
     WHERE btrim(issue_id) = ${itemId.slice(SUB.length)} AND lower(btrim(status)) IN ('', 'new') RETURNING id
   `) as unknown[];
-  if (rows.length > 0) await markClosedByPin(itemId);
+  if (rows.length > 0) {
+    await markClosedByPin(itemId);
+    await sql`UPDATE handoff_items SET step = 'handled', step_since = now(), done_at = now() WHERE kind = 'issue' AND done_at IS NULL AND data->>'issueId' = ${itemId.slice(SUB.length)}`;
+  }
   return null;
 }
 
@@ -196,4 +205,5 @@ export async function reopenProblemOfPin(kind: string, itemId: string): Promise<
     return;
   }
   await sql`UPDATE sub_portal_issues SET status = 'New', updated_at = now() WHERE btrim(issue_id) = ${itemId.slice(SUB.length)} AND status = 'Reviewed'`;
+  await sql`UPDATE handoff_items SET step = 'reported', step_since = now(), done_at = NULL WHERE kind = 'issue' AND step = 'handled' AND data->>'issueId' = ${itemId.slice(SUB.length)}`;
 }

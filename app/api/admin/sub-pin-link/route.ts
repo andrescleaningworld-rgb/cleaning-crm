@@ -11,7 +11,8 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { getSubPortalByEmail, subPortalOnPostgres } from "@/lib/data/sub-portal";
 import { isNonProduction } from "@/lib/portalAuth";
 import { firstNameOf } from "@/lib/subDevice";
-import { sendSms, smsLinksOn } from "@/lib/sms";
+import { smsLinksOn } from "@/lib/sms";
+import { sendText } from "@/lib/notify";
 import { MOTTO } from "@/app/ui/words";
 import { createSetupLink, subHomeReady, SETUP_LINK_DAYS, SUB_PIN_LOGIN_ON } from "@/lib/pg/sub-home";
 
@@ -42,7 +43,7 @@ export async function POST(request: NextRequest) {
     // The whole text is the link: with links off (TEXT_LINKS_ALLOWED, until
     // Textbelt approves links) it would arrive empty, so it is not sent.
     if (phone.length >= 10 && smsLinksOn()) {
-      const result = await sendSms(phone, `Cleaning World: ${first ? `${first}, ` : ""}tap to pick your PIN: ${link} ${MOTTO.es}`, "sub-pin-link").catch(() => ({ success: false }));
+      const result = await sendText(phone, `Cleaning World: ${first ? `${first}, ` : ""}tap to pick your PIN: ${link} ${MOTTO.es}`, "sub-pin-link").catch(() => ({ success: false }));
       texted = result.success === true;
     }
     return NextResponse.json({

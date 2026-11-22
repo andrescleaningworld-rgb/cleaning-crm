@@ -28,7 +28,8 @@ import { finishPaper, listBoardManagers, pinPaper } from "@/lib/pg/board";
 import { appendSubSchedule } from "@/lib/data/scheduling";
 import { weekdaysIn } from "@/lib/availability";
 import { parseClock } from "@/lib/schedule-time";
-import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
+import { sanitizeSmsText, smsLastLine } from "@/lib/sms";
+import { sendText } from "@/lib/notify";
 import { logEmail } from "@/lib/pg/email-log";
 import { fileAccountDocument } from "@/lib/pg/account-documents";
 import { planFromAccountFields } from "@/lib/plan-account-fields";
@@ -629,7 +630,7 @@ async function textSubAboutOffer(phone: string, subName: string): Promise<{ ok: 
     return { ok: true, error: "" };
   }
   try {
-    const result = await sendSms(phone, sanitizeSmsText(SUB_OFFER_TEXT, Infinity), "account-flow/offer");
+    const result = await sendText(phone, sanitizeSmsText(SUB_OFFER_TEXT, Infinity), "account-flow/offer");
     return result.success ? { ok: true, error: "" } : { ok: false, error: "The text did not go out (the text provider said no)." };
   } catch (error) {
     console.error("[sms] account-flow/offer failed:", error instanceof Error ? error.message : error);
@@ -843,7 +844,7 @@ async function textManagerSubSaidNo(row: FlowRow, subName: string, origin: strin
       return;
     }
     const message = [`${subName} can't take ${clean(row.account_name) || "the new account"}. Pick another sub.`, smsLastLine(`${origin}/accounts/${encodeURIComponent(row.account_id)}`, "staff")].join("\n");
-    await sendSms(phone, sanitizeSmsText(message, Infinity), "account-flow/sub-said-no");
+    await sendText(phone, sanitizeSmsText(message, Infinity), "account-flow/sub-said-no");
   } catch (error) {
     console.error("[sms] account-flow/sub-said-no failed:", error instanceof Error ? error.message : error);
   }

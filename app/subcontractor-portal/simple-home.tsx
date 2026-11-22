@@ -349,11 +349,11 @@ export default function SimpleHome({
       if (!site) return;
       const photoUrl = await attach();
       // Filed the way the portal always has (the office is told), then tracked to the manager's My work.
-      await postJson("/api/subcontractor-portal", {
+      const filed = await postJson("/api/subcontractor-portal", {
         action: "submitSubPortalIssue",
         issue: { accountId: site.accountId, accountName: site.accountName, issueType: problemType, urgency: "Normal", description: notes.trim() || problemType, photoCount: photo ? 1 : 0, status: "New" },
       });
-      await postJson("/api/subcontractor-portal/home", { action: "problem", accountId: site.accountId, accountName: site.accountName, problemType, notes: notes.trim(), photoUrl });
+      await postJson("/api/subcontractor-portal/home", { action: "problem", issueId: String(filed.issueId ?? ""), accountId: site.accountId, accountName: site.accountName, problemType, notes: notes.trim(), photoUrl });
     });
 
   const sendExtra = () =>

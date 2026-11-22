@@ -3,7 +3,8 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { getOrFetch, invalidateCached } from "@/lib/serverCache";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { findSubcontractorEmailByName, findSubcontractorPhoneByName, getAccountAssignedSub } from "@/app/api/subcontractors/route";
-import { sanitizeSmsText, sendSms, smsLastLine } from "@/lib/sms";
+import { sanitizeSmsText, smsLastLine } from "@/lib/sms";
+import { sendText } from "@/lib/notify";
 import {
   setAccountChecklistNeeded,
   updateAccountFieldsDirect,
@@ -348,7 +349,7 @@ export async function POST(request: NextRequest) {
               .filter(Boolean)
               .join("\n");
             const message = sanitizeSmsText(rawMessage, Infinity);
-            await sendSms(phone, message, "accounts/updateAccountFieldsDirect");
+            await sendText(phone, message, "accounts/updateAccountFieldsDirect");
           } catch (error) {
             console.error(
               "[sms] account-assignment notify lookup failed:",
@@ -569,7 +570,7 @@ export async function POST(request: NextRequest) {
             .filter(Boolean)
             .join("\n");
           const message = sanitizeSmsText(rawMessage, Infinity);
-          await sendSms(phone, message, "accounts/updateAccount");
+          await sendText(phone, message, "accounts/updateAccount");
         } catch (error) {
           console.error(
             "[sms] account-assignment notify lookup failed:",

@@ -11,7 +11,8 @@
 
 import { getSql } from "@/lib/db";
 import { sendHtmlEmail } from "@/lib/email";
-import { sendSms, sanitizeSmsText, smsLinksOn } from "@/lib/sms";
+import { sanitizeSmsText, smsLinksOn } from "@/lib/sms";
+import { sendText } from "@/lib/notify";
 import { addComplaintEvent, complaintRowId, listComplaintEvents } from "@/lib/pg/complaint-events";
 import { complaintPhotoMap } from "@/lib/pg/complaint-detail";
 import { SUB_PORTAL_PATH } from "@/lib/subPortalInvite";
@@ -223,7 +224,7 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
   } else {
     const last4 = phone.replace(/\D/g, "").slice(-4);
     try {
-      const sent = await sendSms(phone, subComplaintText(account, link, row.language), "complaints/notify-sub");
+      const sent = await sendText(phone, subComplaintText(account, link, row.language), "complaints/notify-sub");
       result.text = sent.success ? "sent" : "failed";
       // A failed text keeps Textbelt's reason, so the list says why (e.g. "Out of quota").
       const why = sent.success ? "" : sent.error || "Textbelt gave no reason";

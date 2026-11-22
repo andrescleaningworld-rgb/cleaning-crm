@@ -24,7 +24,7 @@ import { PAPER_KINDS, isPinStatus, STATUS_NOTE_MAX, type PinStatusEvent, type Pi
 import { handoffLive } from "@/lib/pg/account-live";
 import { boardReady, finishPaper, flowTableReady, listBoardManagers, paperHasOwnDone, pinStatusReady } from "@/lib/pg/board";
 import { staffContact, textBoardPerson, type StaffContact } from "@/lib/pg/board-sms";
-import { sendPush } from "@/lib/push";
+import { sendPush } from "@/lib/notify";
 
 const clean = (value: unknown) => String(value ?? "").trim();
 const KINDS_SQL = PAPER_KINDS.map((kind) => `'${kind}'`).join(", ");
