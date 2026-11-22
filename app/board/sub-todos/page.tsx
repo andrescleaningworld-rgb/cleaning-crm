@@ -10,7 +10,7 @@ import AccountPickerField, { type PickedAccount } from "@/app/components/Account
 import { BigButton, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList } from "@/app/ui";
 import { CW_NOW_STATUS_LABEL, DUE_STYLE, DUE_WORDS, officeToday, taskDueState, taskDueText, type StaffTaskRow, type TaskListStatus } from "@/lib/cwNowTasks";
 import type { TaskSubOption } from "@/lib/pg/cw-now-tasks";
-import { CwNowTaskCard } from "../cw-now-task";
+import { CwNowAddSheet, CwNowTaskCard } from "../cw-now-task";
 
 const STATUS_CHOICES: { value: TaskListStatus; label: string }[] = [
   { value: "open", label: "Open" },
@@ -31,6 +31,7 @@ function SubTodos() {
   const [subs, setSubs] = useState<TaskSubOption[]>([]);
   const [state, setState] = useState<"loading" | "off" | "failed" | "ready">("loading");
   const [openId, setOpenId] = useState(Number(params.get("task") ?? 0) || 0);
+  const [adding, setAdding] = useState(false);
 
   const query = useMemo(() => {
     const search = new URLSearchParams({ status });
@@ -66,7 +67,9 @@ function SubTodos() {
   const subName = subs.find((sub) => sub.id === subId)?.name ?? "";
 
   return (
-    <Screen title="Sub to-dos" subtitle={subName || "Every CW Now task"} backHref="/board">
+    <Screen title="CW Now to-dos" subtitle={subName || "Every sub's to-dos"} backHref="/board">
+      <BigButton onClick={() => setAdding(true)} data-new-todo>+ New to-do</BigButton>
+      <CwNowAddSheet open={adding} onClose={() => setAdding(false)} onAdded={load} />
       <div className="ui-stack">
         <SelectField label="Sub" value={subId} onChange={(event) => setSubId(event.target.value)}>
           <option value="">All subs</option>

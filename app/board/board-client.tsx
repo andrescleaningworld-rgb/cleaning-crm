@@ -381,19 +381,9 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
                 squareExtra={{
                   "shared:account": <MarkateCheckNow compact onDone={(added) => (added > 0 ? void load(true) : undefined)} />,
                   "shared:cwnow": (
-                    <>
-                      <button
-                        type="button"
-                        className={styles.cwNowAdd}
-                        data-paper
-                        onClick={() => setAddingCwNow(true)}
-                      >
-                        + Add to-do
-                      </button>
-                      <Link className={styles.cwNowAdd} data-paper href="/board/sub-todos" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>
-                        Sub to-dos
-                      </Link>
-                    </>
+                    <Link className={styles.cwNowAdd} data-paper data-cw-now-todos href="/board/sub-todos" style={{ display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none" }}>
+                      CW Now to-dos
+                    </Link>
                   ),
                 }}
               />
