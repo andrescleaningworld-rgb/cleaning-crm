@@ -92,7 +92,7 @@ function complaintKeyOf(paper: Paper): string {
   }
 }
 
-export type BoardTab = "board" | "mine" | "calendar" | "tv";
+export type BoardTab = "board" | "mine" | "list" | "calendar" | "tv";
 
 /** A blue paper that mirrors a real extra job: it is finished on the job's page (Done ✓ in its popup goes there), never with Unpin. */
 const isExtraJob = (paper: Paper) => paper.kind === "extra" && paper.itemId.startsWith("job-");
@@ -105,6 +105,7 @@ const checkinIdOf = (paper: Paper) => (paper.kind === "note" ? Number(/^checkin:
 export const BOARD_TABS: { value: BoardTab; label: string }[] = [
   { value: "board", label: "Whole board" },
   { value: "mine", label: "My square" },
+  { value: "list", label: "List" },
   { value: "calendar", label: "Calendar" },
   { value: "tv", label: "TV mode" },
 ];
@@ -115,6 +116,7 @@ export function useBoardTabs(current: BoardTab, onLocal?: (tab: "board" | "mine"
   return (tab: BoardTab) => {
     if (tab === current) return;
     if (tab === "calendar") router.push("/board/calendar");
+    else if (tab === "list") router.push("/board/list");
     else if (tab === "tv") {
       // Full screen has to start inside this click; it stays on while the TV page opens.
       void enterFullScreen();
