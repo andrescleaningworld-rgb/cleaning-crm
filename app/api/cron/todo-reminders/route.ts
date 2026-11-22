@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runTodoReminders } from "@/lib/pg/todo-reminders";
 import { runCwNowTaskReminders } from "@/lib/pg/cw-now-tasks";
+import { boardReady } from "@/lib/pg/board";
+import { syncProblems, textNewProblems } from "@/lib/pg/board-problems";
 
 export const maxDuration = 120;
 
@@ -20,8 +22,18 @@ export async function GET(request: NextRequest) {
     console.error("[cron cw-now reminders]", error instanceof Error ? error.message : error);
     return null;
   });
+  // New crew and sub problems reach their manager within 15 minutes, even with no board open.
+  const problems = await (async () => {
+    if (!(await boardReady())) return 0;
+    const pins = await syncProblems(true);
+    await textNewProblems(pins, origin);
+    return pins.length;
+  })().catch((error) => {
+    console.error("[cron board problems]", error instanceof Error ? error.message : error);
+    return null;
+  });
   try {
-    return NextResponse.json({ success: true, result: await runTodoReminders(origin), cwNow });
+    return NextResponse.json({ success: true, result: await runTodoReminders(origin), cwNow, problems });
   } catch (error) {
     console.error("[cron todo-reminders]", error instanceof Error ? error.message : error);
     return NextResponse.json({ success: false, error: "The to-do reminders did not run." }, { status: 500 });

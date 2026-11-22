@@ -18,6 +18,7 @@ import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } 
 import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
 import { reopenTaskByPaper } from "@/lib/pg/cw-now-tasks";
 import { finishToDoOfPin, reassignToDoOfPin, reopenToDoOfPin } from "@/lib/pg/board-todos";
+import { finishProblemOfPin, reopenProblemOfPin, syncProblems, textNewProblems } from "@/lib/pg/board-problems";
 import {
   boardReady,
   connectTv,
@@ -108,6 +109,12 @@ export async function GET(request: NextRequest) {
     if (await flowsReady().catch(() => false)) await syncAutoSteps().catch((error) => console.error("[board] account flows:", error instanceof Error ? error.message : error));
     // Pinned to-dos get their green check (and come down the day after) from the to-do itself.
     await syncPinnedTodos().catch((error) => console.error("[board] pinned to-dos:", error instanceof Error ? error.message : error));
+    // New crew and sub problems go up in their manager's square, with one text.
+    const newProblems = await syncProblems(request.nextUrl.searchParams.get("fresh") === "1").catch((error) => {
+      console.error("[board] problems:", error instanceof Error ? error.message : error);
+      return [];
+    });
+    if (newProblems.length > 0) after(() => textNewProblems(newProblems, request.nextUrl.origin));
     const settings = await getBoardSettings();
     const [managers, lists, statusOn, credit] = await Promise.all([listBoardManagers(), listPapers(settings.doneDays), pinStatusReady(), smsCredit()]);
     const staffId = clean(identity?.staffId);
@@ -194,9 +201,13 @@ export async function POST(request: NextRequest) {
       if (body.on !== false) {
         const stop = await finishToDoOfPin(kind, itemId);
         if (stop) return refuse(stop, 409);
+        await finishProblemOfPin(kind, itemId);
       }
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
-      if (body.on === false) await reopenToDoOfPin(kind, itemId);
+      if (body.on === false) {
+        await reopenToDoOfPin(kind, itemId);
+        await reopenProblemOfPin(kind, itemId);
+      }
       return NextResponse.json({ success: true });
     }
 
@@ -212,6 +223,7 @@ export async function POST(request: NextRequest) {
       if (status === "done") {
         const stop = await finishToDoOfPin(kind, itemId);
         if (stop) return refuse(stop, 409);
+        await finishProblemOfPin(kind, itemId);
       }
       const result = await setPaperStatus({ kind, itemId, status, note, by });
       if (!result.ok) return refuse("That paper is not on the board any more.", 404);
