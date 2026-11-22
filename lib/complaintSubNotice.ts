@@ -15,6 +15,8 @@ import { sendSms, sanitizeSmsText, smsLinksOn } from "@/lib/sms";
 import { addComplaintEvent, complaintRowId, listComplaintEvents } from "@/lib/pg/complaint-events";
 import { complaintPhotoMap } from "@/lib/pg/complaint-detail";
 import { SUB_PORTAL_PATH } from "@/lib/subPortalInvite";
+import { plainLetters } from "@/lib/cwNowTasks";
+import { rolloutOn } from "@/lib/rollout";
 
 const LOGO_URL = "https://cleaning-crm-xi.vercel.app/cw-logo.jpg";
 
@@ -35,6 +37,8 @@ type Row = {
   company_name: string | null;
   email: string | null;
   phone: string | null;
+  /** en / es / pt. Null before migration 087. */
+  language: string | null;
 };
 
 const clean = (value: unknown) => String(value ?? "").trim();
@@ -96,14 +100,21 @@ export function subComplaintEmail(input: { account: string; day: string; descrip
   return { subject, text, html };
 }
 
-/** The text: no link (and plain letters only, so it stays a single short text). */
-export function subComplaintText(account: string, link: string): string {
-  const name = sanitizeSmsText(account, 60) || "an account";
-  const lines = [
-    `New complaint for ${name}. Check your sub portal.`,
-    `Nueva queja para ${name}. Revisa tu portal.`,
-    `Nova reclamacao para ${name}. Veja seu portal.`,
-  ];
+/**
+ * The text: no link until TEXT_LINKS_ALLOWED is on, and plain letters only.
+ * A sub set to Spanish or Portuguese gets that one language, short. English is
+ * also what every sub starts on before anyone picks, so it keeps all three.
+ */
+export function subComplaintText(account: string, link: string, language?: string | null): string {
+  // FEATURE_SUB_NOTICES off: the same words as before.
+  const on = rolloutOn("SUB_NOTICES");
+  const name = sanitizeSmsText(on ? plainLetters(account) : account, 60) || "an account";
+  const lines =
+    on && language === "es"
+      ? ["Cleaning World - Nueva queja", name, "Arreglala y marca Resuelto en tu portal."]
+      : on && language === "pt"
+        ? ["Cleaning World - Nova reclamacao", name, "Corrija e marque Resolvido no seu portal."]
+        : [`New complaint for ${name}. Check your sub portal.`, `Nueva queja para ${name}. Revisa tu portal.`, `Nova reclamacao para ${name}. Veja seu portal.`];
   if (smsLinksOn()) lines.push(link);
   return sanitizeSmsText(lines.join("\n"), Infinity);
 }
@@ -115,7 +126,7 @@ async function loadNoticeRow(key: string): Promise<{ rowId: number; row: Row }> 
 
   const rows = (await getSql().query(
     `SELECT c.id, btrim(c.complaint_id) AS complaint_id, c.sheet_row, c.account_ref, c.account_name, c.issue, c.notes, c.complaint_date::text AS day,
-            s.id AS sub_id, s.contact_name, s.company_name, s.email, s.phone
+            s.id AS sub_id, s.contact_name, s.company_name, s.email, s.phone, s.language
      FROM complaints c
      LEFT JOIN accounts a ON a.id = c.account_ref
      -- The account's sub by its ID. Only when the account has no sub ID: the
@@ -123,7 +134,7 @@ async function loadNoticeRow(key: string): Promise<{ rowId: number; row: Row }> 
      -- and only if no other sub has that company name. Never a contact name
      -- (two subs can have a contact with the same first name).
      LEFT JOIN LATERAL (
-       SELECT x.id, x.contact_name, x.company_name, x.email, x.phone FROM subcontractors x
+       SELECT x.id, x.contact_name, x.company_name, x.email, x.phone, to_jsonb(x)->>'language' AS language FROM subcontractors x
        WHERE x.id = a.subcontractor_id
           OR (a.subcontractor_id IS NULL AND btrim(a.subcontractor_raw) <> ''
               AND lower(btrim(x.company_name)) = lower(btrim(a.subcontractor_raw))
@@ -212,7 +223,7 @@ export async function notifySubOfComplaint(input: { key: string; origin: string;
   } else {
     const last4 = phone.replace(/\D/g, "").slice(-4);
     try {
-      const sent = await sendSms(phone, subComplaintText(account, link), "complaints/notify-sub");
+      const sent = await sendSms(phone, subComplaintText(account, link, row.language), "complaints/notify-sub");
       result.text = sent.success ? "sent" : "failed";
       // A failed text keeps Textbelt's reason, so the list says why (e.g. "Out of quota").
       const why = sent.success ? "" : sent.error || "Textbelt gave no reason";
@@ -240,7 +251,7 @@ export async function subNoticeInfo(input: { key: string; origin: string }): Pro
   if (!row.sub_id) return { hasSub: false, subName: "", phone: "", email: "", message: "", link: "" };
   const account = clean(row.account_name) || "an account";
   const link = subPortalLink(input.origin, row);
-  const text = subComplaintText(account, link);
+  const text = subComplaintText(account, link, row.language);
   return {
     hasSub: true,
     subName: clean(row.company_name) || clean(row.contact_name),

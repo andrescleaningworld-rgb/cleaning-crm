@@ -36,6 +36,7 @@ import { createCalendarEventForToDo, deleteCalendarEventForToDo, updateCalendarE
 import { sendSubcontractorNotification } from "@/lib/email";
 import { sendPush } from "@/lib/push";
 import { smsLastLine, smsLinksOn } from "@/lib/sms";
+import { rolloutOn } from "@/lib/rollout";
 import { translateTo, translateToEnglish } from "@/lib/translate";
 import { staffContact, textBoardPerson } from "@/lib/pg/board-sms";
 import { todoLocation } from "@/lib/pg/todo-extras";
@@ -228,6 +229,13 @@ export async function deliverNewTask(taskId: number, origin: string): Promise<vo
     if (Object.keys(translations).length > 0) await getSql()`UPDATE cw_now_tasks SET translations = ${JSON.stringify(translations)}::jsonb WHERE id = ${taskId}`;
     await addCalendarEvent(row);
     await textSub(row, "new", origin);
+    // FEATURE_SUB_NOTICES: the private link also goes by email. It counts as Sent, with its line in the history.
+    if (rolloutOn("SUB_NOTICES") && clean(row.sub_email)) {
+      await shareTask(taskId, "email", "CW Now", origin).catch(async (error) => {
+        console.error("[cw-now task] email:", error instanceof Error ? error.message : error);
+        await addEvent(taskId, "share", { method: "email", detail: "Failed" });
+      });
+    }
   } catch (error) {
     console.error("[cw-now task] delivery:", error instanceof Error ? error.message : error);
   }
