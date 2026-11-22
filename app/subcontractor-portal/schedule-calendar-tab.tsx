@@ -5,6 +5,8 @@ import { generateScheduleDates, isScheduleEffectivelyActive, todayISO as schedul
 import { describeScheduleTime, windowHours } from "@/lib/schedule-time";
 import { rowHasTime, rowStartMinutes } from "@/lib/schedule-plan";
 import { formatMinutes } from "@/lib/time-on-site";
+import { DUE_STYLE, DUE_WORDS, officeToday, taskDueState, type MyTodo } from "@/lib/cwNowTasks";
+import type { CrewLang } from "@/lib/crewLinkPeople";
 
 type ScheduleAccount = {
   id?: string;
@@ -142,8 +144,26 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [weekOffset, setWeekOffset] = useState(0);
+  // The sub's CW Now to-dos on their due days. Stays empty while FEATURE_MY_TODOS is off.
+  const [todos, setTodos] = useState<MyTodo[]>([]);
+  const [todoLang, setTodoLang] = useState<CrewLang>("en");
 
   const subId = getSubId(subcontractor);
+
+  useEffect(() => {
+    let alive = true;
+    fetch("/api/subcontractor-portal/my-todos", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body: { success?: boolean; on?: boolean; language?: CrewLang; tasks?: MyTodo[] }) => {
+        if (!alive || body.success !== true || body.on !== true) return;
+        setTodos(body.tasks ?? []);
+        setTodoLang(body.language ?? "en");
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -376,6 +396,24 @@ export default function ScheduleCalendarTab({ accounts, subcontractor }: Props) 
                     ))
                   )}
                 </div>
+
+                {todos.some((todo) => todo.dueDate === dateKey) ? (
+                  <div className="mt-2 space-y-1.5">
+                    {todos
+                      .filter((todo) => todo.dueDate === dateKey)
+                      .map((todo) => {
+                        const state = taskDueState(todo.dueDate, todo.status, officeToday());
+                        const look = DUE_STYLE[state];
+                        return (
+                          <a key={todo.id} href={`${todo.href}?lang=${todoLang}`} className="block rounded-xl border-2 px-2 py-1.5" style={look} data-calendar-todo={state}>
+                            <span className="block text-xs font-black">✅ {DUE_WORDS[todoLang][state]}</span>
+                            <span className="block font-bold">{todo.accountName}</span>
+                            <span className="block text-sm">{(todoLang === "en" ? todo.task : todo.translations[todoLang] || todo.task).slice(0, 60)}</span>
+                          </a>
+                        );
+                      })}
+                  </div>
+                ) : null}
 
                 {notes.length > 0 && (
                   <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">

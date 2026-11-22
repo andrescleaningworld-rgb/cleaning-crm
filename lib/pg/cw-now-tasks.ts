@@ -27,6 +27,7 @@ import {
   taskSubFolder,
   type CwNowShareMethod,
   type CwNowStatus,
+  type MyTodo,
   type PublicTask,
   type StaffTask,
   type TaskTextKind,
@@ -300,7 +301,7 @@ async function textSub(row: TaskRow, kind: TaskTextKind, origin: string): Promis
     return false;
   }
   const withLink = smsLinksOn();
-  const text = taskSmsText(kind, langOf(row), row.account_name, dueOf(row), row.due_time, withLink ? taskLink(origin, row) : "");
+  const text = taskSmsText(kind, langOf(row), row.account_name, dueOf(row), row.due_time, withLink ? taskLink(origin, row) : "", rolloutOn("MY_TODOS"));
   const sent = await textBoardPerson({ staffId: "", name: row.sub_name, phone }, text, paperId(taskId), `cw-now/${kind}`);
   await addEvent(taskId, event, { method: kind, detail: sent ? (withLink ? "Sent with link" : "Sent without link") : "Failed" });
   if (sent && withLink && !row.link_sent_at) await linkWentOut(taskId, "text", "CW Now");
@@ -470,6 +471,7 @@ export async function publicTask(token: string): Promise<PublicTask | null> {
     urgent: row.priority === "urgent",
     status: row.status,
     language: langOf(row),
+    dueColors: rolloutOn("MY_TODOS"),
     canAddPhoto: privateStoreOn(),
     uploadFolder: taskSubFolder(taskId),
     files: files.filter((file) => file.source === "office").map((file) => ({ id: Number(file.id), name: clean(file.file_name) || "File", url: file.file_url, size: Number(file.file_size) || 0, contentType: clean(file.content_type) })),
@@ -548,6 +550,48 @@ export async function taskCalendarFile(token: string): Promise<string | null> {
   const translated = row.translations?.[lang];
   const location = await todoLocation(row.account_id, row.account_name);
   return taskIcs({ taskId: taskIdOf(row), title: `${row.account_name}: ${shortTask(translated || row.task, 70)}`, description: translated || row.task, location, dueDate: dueOf(row), dueTime: row.due_time });
+}
+
+/* ---------- "My to-dos" in the Sub Portal ---------- */
+
+/** The logged-in sub: by the ID in their session, else by an email only one sub has. "" = not found. */
+export async function subIdOfSession(subId: string, email: string): Promise<string> {
+  const sql = getSql();
+  if (clean(subId)) {
+    const rows = (await sql`SELECT id FROM subcontractors WHERE id = ${clean(subId)} LIMIT 1`) as { id: string }[];
+    if (rows[0]) return clean(rows[0].id);
+  }
+  const rows = (await sql`SELECT id FROM subcontractors WHERE btrim(email) <> '' AND lower(btrim(email)) = lower(btrim(${email})) LIMIT 2`) as { id: string }[];
+  return rows.length === 1 ? clean(rows[0].id) : "";
+}
+
+/** One sub's own tasks: everything open, and what they finished in the last 30 days (their link still works that long). */
+export async function listMyTodos(subId: string, options: { withLocation?: boolean } = {}): Promise<MyTodo[]> {
+  if (!subId) return [];
+  const rows = (await getSql().query(
+    `${SELECT_TASK}
+     WHERE t.sub_id = $1 AND (t.status NOT IN ('done', 'cancelled') OR (t.status = 'done' AND t.done_at > now() - ($2::int || ' days')::interval))
+     ORDER BY t.due_date ASC, t.due_time ASC, t.id ASC LIMIT 300`,
+    [subId, DONE_LINK_DAYS]
+  )) as TaskRow[];
+  const live = rows.filter((row) => !row.account_gone);
+  const locations = options.withLocation ? await Promise.all(live.map((row) => todoLocation(row.account_id, row.account_name).catch(() => ""))) : [];
+  return live.map((row, index) => {
+    const translations = row.translations ?? {};
+    return {
+      id: taskIdOf(row),
+      accountName: row.account_name,
+      location: locations[index] ?? "",
+      task: row.task,
+      translations: { ...(translations.es ? { es: translations.es } : {}), ...(translations.pt ? { pt: translations.pt } : {}) },
+      dueDate: dueOf(row),
+      dueTime: cleanTaskTime(row.due_time),
+      urgent: row.priority === "urgent",
+      status: row.status,
+      doneAt: iso(row.done_at),
+      href: `/porter/task/${row.token}`,
+    };
+  });
 }
 
 /* ---------- the reminders (cron /api/cron/todo-reminders, every 15 minutes) ---------- */

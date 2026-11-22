@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { MOTTO, SUB_WORDS, type UiLang } from "@/app/ui/words";
+import MyTodos from "./my-todos";
 import SubShelf from "./sub-shelf";
 import { ShellTitle, TileIconSvg, type TileIcon } from "@/app/ui";
 
@@ -457,6 +458,9 @@ export default function SimpleHome({
       {view === "home" ? (
         <>
           <p className="ui-motto sub-motto">{MOTTO[lang]}</p>
+
+          {/* Nothing shows here until FEATURE_MY_TODOS is on. */}
+          <MyTodos lang={lang} />
 
           <section className="ui-stack" aria-label={words.today(home.today.length)}>
             <h2 className="ui-section-title">{words.today(home.today.length)}</h2>

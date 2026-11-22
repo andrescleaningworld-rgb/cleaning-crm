@@ -8,7 +8,7 @@ import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { useTeamHubLang } from "@/app/team-hub/teamHubStrings";
-import { TASK_WORDS, taskDueText, type PublicTask } from "@/lib/cwNowTasks";
+import { DUE_STYLE, DUE_WORDS, TASK_WORDS, taskDueState, taskDueText, type PublicTask } from "@/lib/cwNowTasks";
 import { shrinkImage } from "@/lib/imageResize";
 import { sizeText } from "@/lib/accountDocuments";
 import { crewLinkStrings } from "../../[code]/strings";
@@ -180,10 +180,17 @@ export default function CwNowTaskPage() {
 
         {task.urgent && !isDone ? <p className="rounded-2xl bg-red-600 px-4 py-3 text-center text-2xl font-black text-white">⚠ {words.urgent}</p> : null}
 
-        <section className="rounded-2xl bg-white p-4 shadow-sm">
-          <p className="text-lg font-bold text-slate-500">{words.due}</p>
-          <p className="text-3xl font-black text-slate-900">{taskDueText(task.dueDate, task.dueTime, lang)}</p>
-        </section>
+        {task.dueColors ? (
+          <section className="rounded-2xl border-4 p-4 shadow-sm" style={DUE_STYLE[taskDueState(task.dueDate, task.status)]} data-due-state={taskDueState(task.dueDate, task.status)}>
+            <p className="text-xl font-black">{DUE_WORDS[lang][taskDueState(task.dueDate, task.status)]}</p>
+            <p className="text-4xl font-black">{taskDueText(task.dueDate, task.dueTime, lang)}</p>
+          </section>
+        ) : (
+          <section className="rounded-2xl bg-white p-4 shadow-sm">
+            <p className="text-lg font-bold text-slate-500">{words.due}</p>
+            <p className="text-3xl font-black text-slate-900">{taskDueText(task.dueDate, task.dueTime, lang)}</p>
+          </section>
+        )}
 
         <section className="rounded-2xl bg-white p-4 shadow-sm">
           <p className="text-lg font-bold text-slate-500">{words.task}</p>

@@ -170,16 +170,16 @@ export const plainLetters = (text: string) => text.normalize("NFD").replace(/[\u
 
 export type TaskTextKind = "new" | "tomorrow" | "today";
 
-const TEXT_WORDS: Record<CrewLang, Record<TaskTextKind, string> & { due: string; linkComing: string; useLink: string }> = {
-  en: { new: "New task", tomorrow: "Reminder: due tomorrow", today: "Reminder: due today", due: "Due", linkComing: "We will send you the link.", useLink: "Use the link we sent you." },
-  es: { new: "Nueva tarea", tomorrow: "Recordatorio: vence manana", today: "Recordatorio: vence hoy", due: "Fecha", linkComing: "Te enviaremos el enlace.", useLink: "Usa el enlace que te enviamos." },
-  pt: { new: "Nova tarefa", tomorrow: "Lembrete: vence amanha", today: "Lembrete: vence hoje", due: "Prazo", linkComing: "Vamos enviar o link.", useLink: "Use o link que enviamos." },
+const TEXT_WORDS: Record<CrewLang, Record<TaskTextKind, string> & { due: string; linkComing: string; useLink: string; inPortal: string }> = {
+  en: { new: "New task", tomorrow: "Reminder: due tomorrow", today: "Reminder: due today", due: "Due", linkComing: "We will send you the link.", useLink: "Use the link we sent you.", inPortal: "See it in My to-dos in your portal." },
+  es: { new: "Nueva tarea", tomorrow: "Recordatorio: vence manana", today: "Recordatorio: vence hoy", due: "Fecha", linkComing: "Te enviaremos el enlace.", useLink: "Usa el enlace que te enviamos.", inPortal: "Mirala en Mis tareas en tu portal." },
+  pt: { new: "Nova tarefa", tomorrow: "Lembrete: vence amanha", today: "Lembrete: vence hoje", due: "Prazo", linkComing: "Vamos enviar o link.", useLink: "Use o link que enviamos.", inPortal: "Veja em Minhas tarefas no seu portal." },
 };
 
-/** The text to the sub. `url` is "" while links are blocked. */
-export function taskSmsText(kind: TaskTextKind, lang: CrewLang, accountName: string, dueDate: string, dueTime: string, url: string): string {
+/** The text to the sub. `url` is "" while links are blocked; `inPortal`: the task is in their My to-dos, so the text says so. */
+export function taskSmsText(kind: TaskTextKind, lang: CrewLang, accountName: string, dueDate: string, dueTime: string, url: string, inPortal = false): string {
   const words = TEXT_WORDS[lang];
-  const last = url || (kind === "new" ? words.linkComing : words.useLink);
+  const last = url || (inPortal ? words.inPortal : kind === "new" ? words.linkComing : words.useLink);
   return plainLetters(`Cleaning World - ${words[kind]}\n${accountName}\n${words.due}: ${taskDueText(dueDate, dueTime, lang)}\n${last}`);
 }
 
@@ -221,12 +221,74 @@ export type PublicTask = {
   urgent: boolean;
   status: CwNowStatus;
   language: CrewLang;
+  /** FEATURE_MY_TODOS: the due date is shown in its color (today yellow, late red, done green). */
+  dueColors?: boolean;
   /** Photos can be added: the private file store is connected. */
   canAddPhoto: boolean;
   uploadFolder: string;
   files: { id: number; name: string; url: string; size: number; contentType: string }[];
   notes: { text: string; at: string }[];
   photos: { id: number; url: string }[];
+};
+
+/* ---------- due dates: today yellow, late red, done green ---------- */
+
+export type TaskDueState = "done" | "overdue" | "today" | "later";
+
+/** Today in the office (New York), "YYYY-MM-DD". */
+export function officeToday(now = new Date()): string {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" })
+      .formatToParts(now)
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function taskDueState(dueDate: string, status: CwNowStatus, today = officeToday()): TaskDueState {
+  if (status === "done") return "done";
+  if (dueDate < today) return "overdue";
+  return dueDate === today ? "today" : "later";
+}
+
+export const DUE_STYLE: Record<TaskDueState, { background: string; borderColor: string; color: string }> = {
+  done: { background: "#dcfce7", borderColor: "#16a34a", color: "#14532d" },
+  overdue: { background: "#fee2e2", borderColor: "#dc2626", color: "#7f1d1d" },
+  today: { background: "#fef08a", borderColor: "#ca8a04", color: "#713f12" },
+  later: { background: "#ffffff", borderColor: "#cbd5e1", color: "#0f172a" },
+};
+
+export const DUE_WORDS: Record<CrewLang, Record<TaskDueState, string>> = {
+  en: { done: "Done ✓", overdue: "LATE", today: "DUE TODAY", later: "Due" },
+  es: { done: "Listo ✓", overdue: "ATRASADA", today: "VENCE HOY", later: "Fecha" },
+  pt: { done: "Feito ✓", overdue: "ATRASADA", today: "VENCE HOJE", later: "Prazo" },
+};
+
+/* ---------- "My to-dos" in the Sub Portal ---------- */
+
+/** One task on the sub's own list. Only what the sub may see: never money or office notes. */
+export type MyTodo = {
+  id: number;
+  accountName: string;
+  /** Filled in for printing. */
+  location: string;
+  task: string;
+  translations: Partial<Record<CrewLang, string>>;
+  dueDate: string;
+  dueTime: string;
+  urgent: boolean;
+  status: CwNowStatus;
+  doneAt: string;
+  /** The private task page. */
+  href: string;
+};
+
+export const MY_TODO_WORDS: Record<CrewLang, {
+  title: string; none: string; finished: string; noneFinished: string; print: string; printList: string; printFinished: string; open: string; loading: string; failed: string; back: string; urgent: string; account: string; task: string; due: string; status: string; printedOn: string; openStatus: string;
+}> = {
+  en: { title: "My to-dos", none: "Nothing to do right now.", finished: "Finished (last 30 days)", noneFinished: "Nothing finished yet.", print: "Print", printList: "Print my list", printFinished: "Print finished", open: "Open", loading: "Loading…", failed: "It did not load. Try again.", back: "Back", urgent: "URGENT", account: "Account", task: "Task", due: "Due", status: "Status", printedOn: "Printed", openStatus: "Open" },
+  es: { title: "Mis tareas", none: "Nada por hacer ahora.", finished: "Terminadas (últimos 30 días)", noneFinished: "Nada terminado todavía.", print: "Imprimir", printList: "Imprimir mi lista", printFinished: "Imprimir terminadas", open: "Abrir", loading: "Cargando…", failed: "No cargó. Inténtalo de nuevo.", back: "Atrás", urgent: "URGENTE", account: "Cuenta", task: "Tarea", due: "Fecha", status: "Estado", printedOn: "Impreso", openStatus: "Abierta" },
+  pt: { title: "Minhas tarefas", none: "Nada para fazer agora.", finished: "Terminadas (últimos 30 dias)", noneFinished: "Nada terminado ainda.", print: "Imprimir", printList: "Imprimir minha lista", printFinished: "Imprimir terminadas", open: "Abrir", loading: "Carregando…", failed: "Não carregou. Tente de novo.", back: "Voltar", urgent: "URGENTE", account: "Conta", task: "Tarefa", due: "Prazo", status: "Situação", printedOn: "Impresso", openStatus: "Aberta" },
 };
 
 /** What the office's card on the board gets. */

@@ -6,6 +6,8 @@
 export const ROLLOUT_SWITCHES = {
   /** 4A: complaint texts in the sub's own language, and an automatic email for each new CW Now task. */
   SUB_NOTICES: "FEATURE_SUB_NOTICES",
+  /** 4B: "My to-dos" in the Sub Portal, tasks on the sub's calendar, due-date colors on the task link, and print. */
+  MY_TODOS: "FEATURE_MY_TODOS",
 } as const;
 
 export type RolloutSwitch = keyof typeof ROLLOUT_SWITCHES;
