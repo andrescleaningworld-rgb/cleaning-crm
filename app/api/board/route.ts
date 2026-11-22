@@ -17,6 +17,7 @@ import { getPinTypes, listPinnedRecords, noteItemId, pinRecord, pinSettingsReady
 import { notifyBoardSquare, paperOnBoard, toDoTextCoversSquare, type PaperNow } from "@/lib/pg/board-sms";
 import { flowsReady, syncAutoSteps } from "@/lib/pg/account-flow";
 import { reopenTaskByPaper } from "@/lib/pg/cw-now-tasks";
+import { finishToDoOfPin, reassignToDoOfPin, reopenToDoOfPin } from "@/lib/pg/board-todos";
 import {
   boardReady,
   connectTv,
@@ -158,9 +159,12 @@ export async function POST(request: NextRequest) {
     if (action === "move") {
       const square = clean(body.square);
       if (!kind || !itemId) return refuse("kind and itemId are required.");
-      if (square && !(await listBoardManagers()).some((manager) => manager.id === square)) return refuse("That person has no square on the board.");
+      const newManager = square ? (await listBoardManagers()).find((manager) => manager.id === square) : undefined;
+      if (square && !newManager) return refuse("That person has no square on the board.");
       // Where the paper hangs before the move: a move inside the same square sends no text.
       const before = square ? await paperOnBoard(kind, itemId).catch(() => null) : null;
+      // A to-do's pin handed to a manager: the to-do is theirs now, reminders included.
+      if (newManager && before && before.square !== square) await reassignToDoOfPin(kind, itemId, newManager.name);
       if (!(await movePaper(kind, itemId, square))) return refuse("That paper is not on the board any more.", 404);
       if (square && before && before.square !== square) {
         after(() => notifyBoardSquare({ square, byStaffId, paperId: before.itemId, title: before.title, accountName: before.accountName, notes: before.notes, origin, routeContext: "board/move" }));
@@ -186,7 +190,13 @@ export async function POST(request: NextRequest) {
         if (!(await reopenTaskByPaper(itemId, by))) return refuse("That to-do was not found.", 404);
         return NextResponse.json({ success: true });
       }
+      // A to-do's pin: Done finishes the to-do too (a Visit goes to its form, so the visit is logged).
+      if (body.on !== false) {
+        const stop = await finishToDoOfPin(kind, itemId);
+        if (stop) return refuse(stop, 409);
+      }
       if (!(await finishPaper(kind, itemId, by, body.on !== false))) return refuse("That paper was not found.", 404);
+      if (body.on === false) await reopenToDoOfPin(kind, itemId);
       return NextResponse.json({ success: true });
     }
 
@@ -199,6 +209,10 @@ export async function POST(request: NextRequest) {
       if (status === "done" && kind === "cwnow" && paperHasOwnDone(kind, itemId)) return refuse("Use Mark done on the to-do.");
       const note = clean(body.note);
       if (note.length > STATUS_NOTE_MAX) return refuse(`Keep the note under ${STATUS_NOTE_MAX} letters.`);
+      if (status === "done") {
+        const stop = await finishToDoOfPin(kind, itemId);
+        if (stop) return refuse(stop, 409);
+      }
       const result = await setPaperStatus({ kind, itemId, status, note, by });
       if (!result.ok) return refuse("That paper is not on the board any more.", 404);
       // A status on a complaint paper answers the complaint (response clock).
