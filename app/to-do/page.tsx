@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PinButton, PinSwitch, pinAfterSave, startingPin, usePinInfo, type PinChoice } from "../components/pin-to-board";
 import type { PinInfo } from "@/lib/boardPins";
@@ -20,7 +20,7 @@ import {
   TO_DO_PRIORITIES,
   type ToDoPriority,
 } from "@/lib/toDoPriority";
-import { isToDoDoneThisWeek } from "@/lib/toDoWeek";
+import { OLD_TO_DO_DAYS, daysSinceMade, isOldOpenToDo, isToDoDoneThisWeek } from "@/lib/toDoWeek";
 import { managerMatches } from "@/lib/managerNames";
 import { loadManagerNames } from "../components/manager-options";
 
@@ -830,6 +830,8 @@ export default function ToDoPage() {
   // Redesign: the Overdue count is a filter; the form and the extra filters
   // open on a tap instead of always taking the top of the screen.
   const [overdueOnly, setOverdueOnly] = useState(false);
+  // Open and made more than 30 days ago, oldest first: to close the dead ones.
+  const [oldOnly, setOldOnly] = useState(false);
   // "To-dos done" counts the ones done this week; tapping it shows just those.
   const [doneWeekOnly, setDoneWeekOnly] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -878,6 +880,7 @@ export default function ToDoPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("filter") === "overdue") setOverdueOnly(true);
+    if (params.get("filter") === "old") setOldOnly(true);
     if (params.get("filter") === "done-week") {
       setDoneWeekOnly(true);
       setStatusFilter("Done");
@@ -1020,6 +1023,7 @@ export default function ToDoPage() {
         return true;
       })
       .filter((todo) => !overdueOnly || isOverdue(todo))
+      .filter((todo) => !oldOnly || isOldOpenToDo(todo))
       .filter((todo) => !doneWeekOnly || isToDoDoneThisWeek(todo))
       .filter((todo) => {
         if (assignedFilter === "All") return true;
@@ -1059,9 +1063,9 @@ export default function ToDoPage() {
         const aTime = a.createdDate ? new Date(a.createdDate).getTime() : 0;
         const bTime = b.createdDate ? new Date(b.createdDate).getTime() : 0;
 
-        return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
+        return sortOrder === "newest" && !oldOnly ? bTime - aTime : aTime - bTime;
       });
-  }, [todos, search, assignedFilter, statusFilter, typeFilter, priorityFilter, sortOrder, overdueOnly, doneWeekOnly]);
+  }, [todos, search, assignedFilter, statusFilter, typeFilter, priorityFilter, sortOrder, overdueOnly, oldOnly, doneWeekOnly]);
 
   // What actually gets printed: whatever's currently filtered on screen
   // (filteredTodos already reflects the active status/assigned/type/priority
@@ -1078,6 +1082,7 @@ export default function ToDoPage() {
   ).length;
 
   const overdueCount = todos.filter(isOverdue).length;
+  const oldCount = todos.filter((todo) => isOldOpenToDo(todo)).length;
   const doneCount = todos.filter((todo) => todo.status === "Done").length;
   const doneThisWeekCount = todos.filter((todo) => isToDoDoneThisWeek(todo)).length;
 
@@ -1518,8 +1523,9 @@ export default function ToDoPage() {
             <select
               value={statusFilter}
               onChange={(event) => {
-                // Picking a status by hand leaves the two quick filters.
+                // Picking a status by hand leaves the quick filters.
                 setOverdueOnly(false);
+                setOldOnly(false);
                 setDoneWeekOnly(false);
                 setStatusFilter(event.target.value);
               }}
@@ -1575,9 +1581,10 @@ export default function ToDoPage() {
                 value: openCount,
                 tone: "info",
                 problemNote: overdueCount > 0 ? `${overdueCount} overdue` : undefined,
-                pressed: !overdueOnly && !doneWeekOnly && statusFilter === "Open",
+                pressed: !overdueOnly && !oldOnly && !doneWeekOnly && statusFilter === "Open",
                 onClick: () => {
                   setOverdueOnly(false);
+                  setOldOnly(false);
                   setDoneWeekOnly(false);
                   setStatusFilter("Open");
                 },
@@ -1589,6 +1596,7 @@ export default function ToDoPage() {
                 pressed: doneWeekOnly,
                 onClick: () => {
                   setOverdueOnly(false);
+                  setOldOnly(false);
                   setDoneWeekOnly(true);
                   setStatusFilter("Done");
                 },
@@ -1605,6 +1613,7 @@ export default function ToDoPage() {
             aria-pressed={overdueOnly}
             onClick={() => {
               setDoneWeekOnly(false);
+              setOldOnly(false);
               setStatusFilter("Open");
               setOverdueOnly((value) => !value);
             }}
@@ -1612,6 +1621,25 @@ export default function ToDoPage() {
             {overdueOnly ? "Showing only overdue · tap for all pending" : `Show only the ${overdueCount} overdue`}
           </button>
         ) : null}
+
+        {/* Old open to-dos, oldest first, so a manager can close the dead ones. */}
+        {oldCount > 0 || oldOnly ? (
+          <button
+            type="button"
+            className="ui-chip no-print"
+            aria-pressed={oldOnly}
+            data-old-todos
+            onClick={() => {
+              setDoneWeekOnly(false);
+              setOverdueOnly(false);
+              setStatusFilter("Open");
+              setOldOnly((value) => !value);
+            }}
+          >
+            {oldOnly ? "Showing old to-dos · tap for all pending" : `🕰 ${oldCount} open over ${OLD_TO_DO_DAYS} days`}
+          </button>
+        ) : null}
+        {oldOnly ? <p className="ui-card-text no-print">Still needed? Leave it. Dead? Open it and mark it Done or Cancelled.</p> : null}
 
         {quotaWarning !== null && !quotaBannerDismissed ? (
           <div className="ui-card ui-stack no-print">
@@ -2032,7 +2060,7 @@ export default function ToDoPage() {
               <h2 className="ui-card-title">
                 {doneWeekOnly
                   ? `To-dos done this week (${filteredTodos.length})`
-                  : `${overdueOnly ? "Overdue" : statusFilter === "Open" ? "Pending" : statusFilter === "All" ? "All" : statusFilter} to-dos (${filteredTodos.length})`}
+                  : `${oldOnly ? `Open over ${OLD_TO_DO_DAYS} days:` : overdueOnly ? "Overdue" : statusFilter === "Open" ? "Pending" : statusFilter === "All" ? "All" : statusFilter} to-dos (${filteredTodos.length})`}
               </h2>
               <p className="ui-muted hidden print:block">
                 Printed: {new Date().toLocaleDateString()}
@@ -2055,13 +2083,14 @@ export default function ToDoPage() {
             </div>
           ) : filteredTodos.length === 0 ? (
             <div className="ui-empty">
-              <p className="ui-empty-title">{overdueOnly ? "Nothing is overdue" : doneWeekOnly ? "Nothing done yet this week" : "No to-dos here"}</p>
-              <p className="ui-empty-text">{overdueOnly || doneWeekOnly ? "Tap To-dos pending to see what is open." : "Tap Add to-do to make one, or change the filters."}</p>
+              <p className="ui-empty-title">{oldOnly ? "No old to-dos" : overdueOnly ? "Nothing is overdue" : doneWeekOnly ? "Nothing done yet this week" : "No to-dos here"}</p>
+              <p className="ui-empty-text">{oldOnly || overdueOnly || doneWeekOnly ? "Tap To-dos pending to see what is open." : "Tap Add to-do to make one, or change the filters."}</p>
             </div>
           ) : (
             filteredTodos.map((todo) => (
+              <Fragment key={todo.id}>
+              {oldOnly ? <p className="ui-strong no-print" data-old-age>Made {daysSinceMade(todo.createdDate)} days ago</p> : null}
               <ToDoCard
-                key={todo.id}
                 todo={todo}
                 pinInfo={pinInfo}
                 recurringCount={todo.groupId ? groupCounts.get(todo.groupId) ?? 0 : 0}
@@ -2076,6 +2105,7 @@ export default function ToDoPage() {
                 highlighted={todo.id === highlightId}
                 onboardingAccountHref={getOnboardingAccountHref(todo, accounts)}
               />
+              </Fragment>
             ))
           )}
         </section>

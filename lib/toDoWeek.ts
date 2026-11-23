@@ -24,6 +24,24 @@ function thisWeek(now = new Date()): { start: Date; end: Date } {
   return { start, end };
 }
 
+/** "Old" on the To-Do list: still open and made more than this many days ago. */
+export const OLD_TO_DO_DAYS = 30;
+
+/** Whole days since the to-do was made. Null when its date can't be read. */
+export function daysSinceMade(createdDate: string, now = new Date()): number | null {
+  const made = parseDay(createdDate);
+  if (!made) return null;
+  const from = Date.UTC(made.getFullYear(), made.getMonth(), made.getDate());
+  const to = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((to - from) / 86_400_000);
+}
+
+export function isOldOpenToDo(todo: { status: string; createdDate: string }, now = new Date()): boolean {
+  if (todo.status === "Done" || todo.status === "Cancelled") return false;
+  const days = daysSinceMade(todo.createdDate, now);
+  return days !== null && days > OLD_TO_DO_DAYS;
+}
+
 export function isDoneStatus(status: string): boolean {
   const clean = String(status ?? "").trim().toLowerCase();
   return clean.includes("done") || clean.includes("completed");
