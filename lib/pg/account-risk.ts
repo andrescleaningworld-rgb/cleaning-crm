@@ -25,8 +25,16 @@ import { managerSquareFinder, pinOnceCapped, takeDownPapers } from "@/lib/pg/aut
 import { riskOf, type RiskFlag, type RiskSignals } from "@/lib/accountRisk";
 import { easternToday } from "@/lib/subInsurance";
 import { thumbsDownByAccount } from "@/lib/pg/customer-checkin";
+import { checkinRiskHolds } from "@/lib/pg/checkin-follow-up";
 
-export type AccountRisk = RiskFlag & { accountId: string; accountName: string; manager: string; signals: RiskSignals };
+export type AccountRisk = RiskFlag & {
+  accountId: string;
+  accountName: string;
+  manager: string;
+  signals: RiskSignals;
+  /** On because of 2 check-ins in a row not Great: stays on until a person clears it. */
+  checkinHeld?: boolean;
+};
 
 type Row = {
   id: string;
@@ -47,7 +55,19 @@ export function forgetRiskCache(): void {
   cache = null;
 }
 
+/** The worked-out flags, with the saved check-in flag on top (read fresh, so a new one or a Clear shows at once). */
 export async function accountRiskFlags(): Promise<Map<string, AccountRisk>> {
+  const [worked, holds] = await Promise.all([workedOutFlags(), checkinRiskHolds().catch(() => new Map<string, string>())]);
+  if (holds.size === 0) return worked;
+  const flags = new Map(worked);
+  for (const [id, reason] of holds) {
+    const flag = worked.get(id);
+    if (flag) flags.set(id, { ...flag, level: "red", reason: flag.level === "red" ? `${reason} · ${flag.reason}` : reason, checkinHeld: true });
+  }
+  return flags;
+}
+
+async function workedOutFlags(): Promise<Map<string, AccountRisk>> {
   if (cache && Date.now() - cache.at < CACHE_MS) return cache.flags;
   const sql = getSql();
   const [rows, scores, thumbs, thresholds] = await Promise.all([
@@ -138,10 +158,12 @@ export async function refreshRiskPins(): Promise<{ red: number; pinned: number; 
     `;
   }
 
-  // Accounts that are no longer active: forgotten, and their paper comes down.
+  // Accounts that are no longer active: forgotten, and their paper comes down (a saved check-in flag is kept).
+  const holds = await checkinRiskHolds().catch(() => new Map<string, string>());
   for (const row of before) {
     if (flags.has(row.account_id)) continue;
     if (row.level === "red") result.cleared += await takeDownPapers(`risk:${row.account_id}:`, "No longer active");
+    if (holds.has(row.account_id)) continue;
     await sql`DELETE FROM account_risk_flags WHERE account_id = ${row.account_id}`;
   }
   return result;

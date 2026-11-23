@@ -16,7 +16,9 @@
 //   stop → "Stop these emails?" → Yes
 // The old monthly links (?a=up / down) still work as Great / Needs attention.
 // The test link (id 0, "Send me a test") shows the same pages and saves nothing.
-// Rate-limited per link. The page shows nothing about the account.
+//   better → the feedback box for the saved answer; saves nothing (the OK reply email).
+// Rate-limited per link. The page shows nothing about the account, except the
+// account manager's name and phone under the OK message.
 // Customer-facing: never "sub", always "your cleaning team".
 
 import { NextRequest } from "next/server";
@@ -26,7 +28,7 @@ import { CHECKIN_PAGE as W, CHECKIN_RATINGS, customerEmoji, type CheckinRating }
 import { escHtml } from "@/lib/simpleEmail";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { WELCOME_COLORS as C, WELCOME_LOGO_URL } from "@/lib/welcomePacket";
-import { answerCheckin, checkinAccountId, currentRating, optOutCheckin, submitFeedback } from "@/lib/pg/customer-checkin";
+import { answerCheckin, checkinAccountId, checkinSignature, currentRating, optOutCheckin, submitFeedback } from "@/lib/pg/customer-checkin";
 
 type RouteContext = { params: Promise<{ token: string }> };
 
@@ -93,7 +95,8 @@ const PAGE_SCRIPT = `<script>
 (function(){var f=document.getElementById("better");if(!f)return;var P=${PROMPTS};
 function show(v){var p=P[v];if(!p)return;var box=document.getElementById("box");box.className="box "+(v==="attention"?"bad":v==="great"?"light":"");
 document.getElementById("prompt").textContent=p.prompt;document.getElementById("hint").textContent=p.hint;
-document.getElementById("reachBox").style.display=v==="great"?"none":"";}
+document.getElementById("reachBox").style.display=v==="great"?"none":"";
+var s=document.getElementById("okSign");if(s)s.style.display=v==="ok"?"":"none";}
 [].forEach.call(f.querySelectorAll("input[name=rating]"),function(r){r.addEventListener("change",function(){show(r.value);});});
 if(!window.FormData||!window.fetch)return;
 function shrink(file){return new Promise(function(done){if(!/^image\\//.test(file.type)){done(file);return;}
@@ -110,7 +113,7 @@ return fetch(location.href,{method:"POST",body:d});}).then(function(r){return r.
 </script>`;
 
 /** The answer is saved: the feedback box, with the three answers to change it. */
-function feedbackPage(rating: CheckinRating, test: boolean): Response {
+function feedbackPage(rating: CheckinRating, test: boolean, signature: string[] = []): Response {
   const r = CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
   const choices = CHECKIN_RATINGS.map(
     (c) =>
@@ -123,6 +126,7 @@ function feedbackPage(rating: CheckinRating, test: boolean): Response {
       `<form id="better" method="post" enctype="multipart/form-data">` +
       `<p class="note" style="margin:0">${escHtml(W.change)}</p><div class="choices" role="radiogroup" aria-label="${escHtml(W.change)}">${choices}</div>` +
       `<div id="box" class="box ${boxClass}"><h2 id="prompt">${escHtml(W.prompt[rating])}</h2><p class="note" id="hint" style="margin:0">${escHtml(W.hint[rating])}</p>` +
+      (signature.length ? `<p class="note" id="okSign" style="margin:8px 0 0${rating === "ok" ? "" : ";display:none"}">${signature.map(escHtml).join("<br>")}</p>` : "") +
       `<label for="c" class="sr">Your comment</label><textarea id="c" name="comment" maxlength="2000"></textarea>` +
       `<div id="reachBox"${rating === "great" ? ' style="display:none"' : ""}><label for="r">${escHtml(W.reach)}</label>` +
       `<input id="r" type="text" name="reach" maxlength="200" autocomplete="tel" placeholder="${escHtml(W.reachHint)}" /></div>` +
@@ -160,6 +164,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const action = request.nextUrl.searchParams.get("a");
   const rating = ratingFrom(action);
   if (rating) return page(`<h1>${escHtml(customerEmoji(CHECKIN_RATINGS.find((r) => r.value === rating)!))}</h1>${sendNow(rating)}`);
+  if (action === "better") {
+    if (id === 0) return feedbackPage("ok", true);
+    const saved = await currentRating(id);
+    return saved ? feedbackPage(saved, false, await checkinSignature(id).catch(() => [])) : gone();
+  }
   if (action === "stop") {
     return page(
       `<h1>${escHtml(W.stopTitle)}</h1>${testNote(id === 0)}<form method="post"><input type="hidden" name="a" value="stop" />` +
@@ -182,7 +191,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const rating = ratingFrom(action);
     if (rating) {
       if (!test && !(await answerCheckin(id, rating, origin))) return gone();
-      return feedbackPage(rating, test);
+      return feedbackPage(rating, test, test ? [] : await checkinSignature(id).catch(() => []));
     }
     if (action === "comment" || action === "skip") {
       const chosen = ratingFrom(form?.get("rating"));

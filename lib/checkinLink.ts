@@ -41,7 +41,8 @@ export function readCheckinToken(token: string, now = Date.now()): number | null
   }
 }
 
-export type CheckinLinkAction = "great" | "ok" | "attention" | "stop";
+/** "better" opens the feedback box and saves nothing (the OK follow-up email). */
+export type CheckinLinkAction = "great" | "ok" | "attention" | "stop" | "better";
 
 export const checkinUrl = (origin: string, token: string, action: CheckinLinkAction) => `${origin.replace(/\/$/, "")}${CHECKIN_PATH}/${token}?a=${action}`;
 

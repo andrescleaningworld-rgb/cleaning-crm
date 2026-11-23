@@ -25,15 +25,20 @@
 // emails the office (crm@; "⚠️ Needs attention" starts the subject for
 // those). The answer can be changed on the page before Submit.
 // 😀 Great is just logged. 😟 Needs attention puts a
-// paper in the account manager's square right away, with a text and a push;
-// 😐 OK does the same once the customer writes what to do better.
+// paper in the account manager's square right away, with a text and a push.
+// 😐 OK does too ("visit within 5 business days", red after that, down when a
+// Visit is logged), and the customer gets one short reply email. Feedback sent
+// later goes on the paper and tells the manager again. Two answers in a row
+// that are not Great turn the account At risk (lib/pg/checkin-follow-up.ts).
 
+import { addBusinessDays, officeDay } from "@/lib/accountFlow";
+import { flagRiskFromCheckins } from "@/lib/pg/checkin-follow-up";
 import { getSql } from "@/lib/db";
 import { logActivity, logCustomerActivity } from "@/lib/activityLog";
 import { linesToHtml, sendHtmlEmail } from "@/lib/email";
 import { sendPush } from "@/lib/notify";
 import { accountLive } from "@/lib/pg/account-live";
-import { managerSquareFinder, pinOnce, takeDownPapers, updatePaperNotes } from "@/lib/pg/auto-pins";
+import { managerSquareFinder, paperSquare, pinOnce, putPaperBackUp, takeDownPapers, updatePaperNotes } from "@/lib/pg/auto-pins";
 import { notifyBoardSquare } from "@/lib/pg/board-sms";
 import { complaintOpenSql } from "@/lib/pg/complaint-changes";
 import { checkinOpenUrl, checkinToken, checkinUrl } from "@/lib/checkinLink";
@@ -43,8 +48,10 @@ import {
   CHECKIN_REPEAT_DAYS,
   CHECKIN_TEST_EMAIL,
   checkinEmail,
+  checkinOkEmail,
   ratingOf,
   ratingText,
+  signatureLines,
   type CheckinAnswerValue,
   type CheckinBatch,
   type CheckinBatchKind,
@@ -394,12 +401,12 @@ export async function sendTestCheckin(origin: string, by: string): Promise<boole
 
 /* ---------- answers (app/checkin) ---------- */
 
-type AnswerRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; photos: string; reach: string };
+type AnswerRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; photos: string; reach: string; sent_to: string };
 
 async function answerRow(id: number): Promise<AnswerRow | null> {
   const reach = (await viewReady()) ? "k.reach" : "''";
   const rows = (await getSql().query(
-    `SELECT k.id::text, k.account_id, k.answer, k.comment, k.photos, ${reach} AS reach, COALESCE(a.account_name, '') AS account_name,
+    `SELECT k.id::text, k.account_id, k.answer, k.comment, k.photos, k.sent_to, ${reach} AS reach, COALESCE(a.account_name, '') AS account_name,
             COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw, '') AS manager
      FROM customer_checkins k
      LEFT JOIN accounts a ON a.id = k.account_id
@@ -418,22 +425,68 @@ async function history(accountId: string, detail: string): Promise<void> {
 
 const paperId = (id: number, rating: "attention" | "ok") => `checkin:${id}:${rating}`;
 
-/** A paper in the account manager's square, with a text and a push when it goes up now. */
-async function pinForManager(row: AnswerRow, id: number, rating: "attention" | "ok", comment: string, origin: string): Promise<void> {
-  const squareOf = await managerSquareFinder();
-  const square = squareOf(row.manager);
-  const label = rating === "attention" ? "Check-in 😟 Needs attention" : "Check-in 😐 OK";
-  const notes = comment ? `"${comment}"` : rating === "attention" ? "The customer says the cleaning needs attention." : "The customer said OK.";
-  const itemId = paperId(id, rating);
-  const href = `/accounts/${encodeURIComponent(row.account_id)}`;
-  const up = await pinOnce({ itemId, title: row.account_name || "Customer check-in", label, notes, href, square, accountId: row.account_id, accountName: row.account_name });
-  if (!up || !square) return;
+const OK_PAPER_LABEL = "Check-in: OK — visit within 5 business days";
+const CHANGED_ANSWER = "Customer changed it";
+const paperLabelFor = (rating: "attention" | "ok") => (rating === "attention" ? "Check-in 😟 Needs attention" : OK_PAPER_LABEL);
+
+/** The text and the push to the manager of a square (the Office square gets neither, like other papers). */
+async function tellManager(square: string, row: AnswerRow, id: number, rating: "attention" | "ok", notes: string, origin: string): Promise<void> {
+  if (!square) return;
+  const label = paperLabelFor(rating);
   try {
-    await notifyBoardSquare({ square, byStaffId: "", paperId: itemId, title: label, accountName: row.account_name, notes, origin, routeContext: "checkin/answer" });
-    await sendPush(square, label, `${row.account_name}: ${notes}`.slice(0, 180), `${origin}${href}`, "checkin/answer");
+    await notifyBoardSquare({ square, byStaffId: "", paperId: paperId(id, rating), title: label, accountName: row.account_name, notes, origin, routeContext: "checkin/answer" });
+    await sendPush(square, label, `${row.account_name}: ${notes}`.slice(0, 180), `${origin}/accounts/${encodeURIComponent(row.account_id)}`, "checkin/answer");
   } catch (error) {
     console.error("[checkin] notify:", error instanceof Error ? error.message : error);
   }
+}
+
+/**
+ * A paper in the account manager's square, with a text and a push when it goes
+ * up. An OK paper that came down only because the customer changed their answer
+ * goes back up. true = this check-in's paper went up for the first time.
+ */
+async function pinForManager(row: AnswerRow, id: number, rating: "attention" | "ok", comment: string, origin: string): Promise<boolean> {
+  const squareOf = await managerSquareFinder();
+  const square = squareOf(row.manager);
+  const notes = comment ? `"${comment}"` : rating === "attention" ? "The customer says the cleaning needs attention." : "The customer said OK.";
+  const itemId = paperId(id, rating);
+  const href = `/accounts/${encodeURIComponent(row.account_id)}`;
+  const dueDate = rating === "ok" ? addBusinessDays(officeDay(new Date()), 5) : "";
+  const up = await pinOnce({ itemId, title: row.account_name || "Customer check-in", label: paperLabelFor(rating), notes, href, square, accountId: row.account_id, accountName: row.account_name, dueDate });
+  if (up) {
+    await tellManager(square, row, id, rating, notes, origin);
+  } else if (rating === "ok" && (await putPaperBackUp(itemId, CHANGED_ANSWER, dueDate))) {
+    await updatePaperNotes(itemId, notes);
+    await tellManager((await paperSquare(itemId)) ?? square, row, id, rating, notes, origin);
+  }
+  return up;
+}
+
+/** The one short reply to an OK answer. Never to an account that stopped the emails, is cancelled or is a test. */
+async function sendOkReply(row: AnswerRow, id: number, origin: string): Promise<void> {
+  try {
+    const c = (await candidates([row.account_id]))[0];
+    if (!c || !row.sent_to || c.opted_out || c.is_test || ["cancelled", "canceled"].includes(clean(c.status_key).toLowerCase())) return;
+    const token = checkinToken(id);
+    const email = checkinOkEmail({
+      customerName: c.account_name,
+      managerName: c.manager_name,
+      managerPhone: c.manager_phone,
+      betterUrl: checkinUrl(origin, token, "better"),
+      stopUrl: checkinUrl(origin, token, "stop"),
+    });
+    await sendHtmlEmail({ to: [row.sent_to], replyTo: c.manager_email || undefined, ...email, log: { type: "Check-in OK reply", accountId: c.id, accountName: c.account_name, sentBy: "System" } });
+  } catch (error) {
+    console.error("[checkin] OK reply:", error instanceof Error ? error.message : error);
+  }
+}
+
+/** The manager's name and phone for the answer page's signature. */
+export async function checkinSignature(id: number): Promise<string[]> {
+  const accountId = await checkinAccountId(id);
+  const c = accountId ? (await candidates([accountId]))[0] : null;
+  return signatureLines({ managerName: c?.manager_name ?? "", managerPhone: c?.manager_phone ?? "", managerEmail: "" });
 }
 
 /**
@@ -498,11 +551,15 @@ async function setRating(row: AnswerRow, id: number, rating: CheckinRating, orig
   const changed = (await getSql().query(`UPDATE customer_checkins SET answer = $2, answered_at = now()${opened} WHERE id = $1 AND answer = $3 RETURNING id`, [id, rating, row.answer])) as unknown[];
   if (changed.length === 0) return false;
   // A changed answer takes the paper of the old one down.
-  if (rating !== "attention") await takeDownPapers(paperId(id, "attention"), `Customer changed it to ${ratingText(rating)}`);
-  if (rating !== "ok") await takeDownPapers(paperId(id, "ok"), `Customer changed it to ${ratingText(rating)}`);
+  if (rating !== "attention") await takeDownPapers(paperId(id, "attention"), `${CHANGED_ANSWER} to ${ratingText(rating)}`);
+  if (rating !== "ok") await takeDownPapers(paperId(id, "ok"), `${CHANGED_ANSWER} to ${ratingText(rating)}`);
   if (rating === "attention") await pinForManager(row, id, "attention", clean(row.comment), origin);
-  if (rating === "ok" && clean(row.comment)) await pinForManager(row, id, "ok", clean(row.comment), origin);
+  // The first time this check-in's OK paper goes up is the one time the customer gets the reply.
+  if (rating === "ok" && (await pinForManager(row, id, "ok", clean(row.comment), origin))) await sendOkReply(row, id, origin);
   await history(row.account_id, `Check-in: the customer ${row.answer ? "changed the answer to" : "answered"} ${ratingText(rating)}.`);
+  if (rating !== "great") {
+    await flagRiskFromCheckins(row.account_id).catch((error) => console.error("[checkin] at risk:", error instanceof Error ? error.message : error));
+  }
   return true;
 }
 
@@ -531,9 +588,11 @@ export async function submitFeedback(
   if (!(await checkinReady())) return false;
   const row = await answerRow(id);
   if (!row) return false;
-  const changed = input.rating ? await setRating(row, id, input.rating, origin) : false;
-  const rating = changed && input.rating ? input.rating : ratingOf(row.answer);
   const text = input.comment.trim().slice(0, 2000);
+  // Changed to OK with a comment in the same send: one paper and one message, with the comment on them.
+  const rowForPin = input.rating === "ok" && text ? { ...row, comment: text } : row;
+  const changed = input.rating ? await setRating(rowForPin, id, input.rating, origin) : false;
+  const rating = changed && input.rating ? input.rating : ratingOf(row.answer);
   const viewed = await viewReady();
   const reach = viewed ? input.reach.trim().slice(0, 200) : "";
   const allPhotos = [...photoList(row.photos), ...input.photos].slice(0, 6);
@@ -552,7 +611,12 @@ export async function submitFeedback(
       .filter(Boolean)
       .join(" · ");
     if (rating === "attention") await updatePaperNotes(paperId(id, "attention"), notes);
-    if (rating === "ok") await pinForManager(row, id, "ok", note, origin).then(() => updatePaperNotes(paperId(id, "ok"), notes));
+    if (rating === "ok") {
+      const wentUp = await pinForManager(row, id, "ok", note, origin);
+      await updatePaperNotes(paperId(id, "ok"), notes);
+      // Already up: the feedback is news. Tell the manager of the square it is in now.
+      if (!wentUp && !changed) await tellManager((await paperSquare(paperId(id, "ok"))) ?? "", row, id, "ok", notes, origin);
+    }
     await history(
       row.account_id,
       `Check-in feedback: ${text}${input.photos.length ? ` (${input.photos.length} photo${input.photos.length === 1 ? "" : "s"})` : ""}${reach ? ` · Best way to reach: ${reach}` : ""}`

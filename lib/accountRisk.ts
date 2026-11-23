@@ -57,5 +57,14 @@ export function riskOf(signals: RiskSignals, t: AtRiskSetting): RiskFlag {
   return worst;
 }
 
+/** The saved flag's reason (lib/pg/checkin-follow-up.ts). */
+export const CHECKIN_RISK_REASON = "2 check-ins in a row not Great";
+
+/** The last 2 answers, newest first: both OK or worse and both within 90 days. */
+export function twoNotGreat(answers: { answer: string; recent: boolean }[]): boolean {
+  const notGreat = (answer: string) => ["ok", "attention", "down"].includes(answer);
+  return answers.length >= 2 && answers.slice(0, 2).every((row) => row.recent && notGreat(row.answer));
+}
+
 export const RISK_WORDS: Record<RiskLevel, string> = { green: "OK", yellow: "Watch", red: "At risk" };
 export const RISK_DOT: Record<RiskLevel, string> = { green: "🟢", yellow: "🟡", red: "🔴" };

@@ -8,8 +8,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { accountRiskFlags } from "@/lib/pg/account-risk";
+import { clearCheckinRisk } from "@/lib/pg/checkin-follow-up";
 
 const noStore = { headers: { "Cache-Control": "no-store" } };
+
+/** POST { accountId }: a person clears "2 check-ins in a row not Great". */
+export async function POST(request: NextRequest) {
+  try {
+    const identity = await getAdminIdentity(request);
+    if (!identity) return NextResponse.json({ success: false, error: "Log in first." }, { status: 401, ...noStore });
+    const body = (await request.json().catch(() => ({}))) as { accountId?: unknown };
+    const accountId = String(body.accountId ?? "").trim();
+    if (!accountId) return NextResponse.json({ success: false, error: "Pick an account." }, { status: 400, ...noStore });
+    await clearCheckinRisk(accountId, identity.name || "Staff");
+    const flag = (await accountRiskFlags()).get(accountId) ?? null;
+    return NextResponse.json({ success: true, flag }, noStore);
+  } catch (error) {
+    console.error("[account-risk POST]", error instanceof Error ? error.message : error);
+    return NextResponse.json({ success: false, error: "That did not save. Try again." }, { status: 500, ...noStore });
+  }
+}
 
 export async function GET(request: NextRequest) {
   try {

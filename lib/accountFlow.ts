@@ -120,6 +120,13 @@ export function officeDay(value: Date | string): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+/** The day that is `count` weekdays after a YYYY-MM-DD day. Holidays count as work days. */
+export function addBusinessDays(fromDay: string, count: number): string {
+  let day = fromDay;
+  while (day && businessDaysBetween(fromDay, day) < count) day = dayAfter(day);
+  return day;
+}
+
 /** Weekdays after `fromDay` up to and including `toDay` (both YYYY-MM-DD). Holidays count as work days. */
 export function businessDaysBetween(fromDay: string, toDay: string): number {
   const toUtc = (day: string) => {

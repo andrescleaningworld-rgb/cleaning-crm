@@ -15,10 +15,28 @@ import type { RiskFlag, RiskSignals } from "@/lib/accountRisk";
 import { SNOOZE_MONTHS, agoText, type PriceReview, type SnoozeMonths } from "@/lib/priceReview";
 import { easternToday, niceDay } from "@/lib/subInsurance";
 
-type Flag = RiskFlag & { signals: RiskSignals };
+type Flag = RiskFlag & { signals: RiskSignals; checkinHeld?: boolean };
 
 function RiskPart({ accountId }: { accountId: string }) {
   const [flag, setFlag] = useState<Flag | null>(null);
+  const [clearing, setClearing] = useState(false);
+
+  // "2 check-ins in a row not Great" stays on until a person clears it.
+  async function clearHold() {
+    setClearing(true);
+    try {
+      const response = await fetch("/api/account-risk", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accountId }) });
+      const data = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; flag?: Flag | null };
+      if (!data.success) throw new Error(data.error || "That did not save. Try again.");
+      setFlag(data.flag ?? null);
+      showToast("Check-in flag cleared ✓");
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "That did not save. Try again.", "bad");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   useEffect(() => {
     let alive = true;
     fetch(`/api/account-risk?accountId=${encodeURIComponent(accountId)}`, { cache: "no-store" })
@@ -38,6 +56,13 @@ function RiskPart({ accountId }: { accountId: string }) {
         {flag.level === "green" ? <span className="ui-muted">Nothing to worry about.</span> : null}
       </div>
       <RiskReason flag={flag} />
+      {flag.checkinHeld ? (
+        <div>
+          <BigButton kind="second" busy={clearing} busyLabel="Clearing…" onClick={() => void clearHold()}>
+            Clear check-in flag
+          </BigButton>
+        </div>
+      ) : null}
       <p className="ui-muted">
         {s.complaints30} complaint{s.complaints30 === 1 ? "" : "s"} in 30 days ·{" "}
         {s.daysSinceVisit === null ? "no visit date" : s.noVisitYet ? `no visit yet (${s.daysSinceVisit} days)` : `last visit ${s.daysSinceVisit} days ago`} ·{" "}
