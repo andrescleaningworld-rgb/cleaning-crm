@@ -86,7 +86,8 @@ type TaskRow = {
   sub_name: string;
   task: string;
   translations: Record<string, string> | null;
-  due_date: string | Date;
+  /** Null = no due date (migration 092). */
+  due_date: string | Date | null;
   due_time: string;
   priority: string;
   status: CwNowStatus;
@@ -122,7 +123,8 @@ const SELECT_TASK = `
 
 const langOf = (row: Pick<TaskRow, "sub_language">): CrewLang => (isCrewLang(row.sub_language) ? row.sub_language : "en");
 const taskIdOf = (row: Pick<TaskRow, "id">) => Number(row.id);
-const dueOf = (row: Pick<TaskRow, "due_date">) => dayText(row.due_date);
+/** "YYYY-MM-DD", or "" for a task with no due date. */
+const dueOf = (row: Pick<TaskRow, "due_date">) => (row.due_date ? dayText(row.due_date) : "");
 const taskLink = (origin: string, row: Pick<TaskRow, "token" | "sub_language">) => {
   const lang = langOf(row);
   return `${origin.replace(/\/$/, "")}/porter/task/${row.token}${lang === "en" ? "" : `?lang=${lang}`}`;
@@ -160,6 +162,15 @@ async function patchPaper(taskId: number, patch: Record<string, string>): Promis
   await getSql()`UPDATE handoff_items SET data = data || ${JSON.stringify(patch)}::jsonb WHERE kind = 'cwnow' AND item_id = ${paperId(taskId)}`;
 }
 
+let dueOptional = false;
+/** Migration 092 is in: a task can be saved with no due date. */
+async function noDueDateReady(): Promise<boolean> {
+  if (dueOptional) return true;
+  const rows = (await getSql()`SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'cw_now_tasks' AND column_name = 'due_date' LIMIT 1`) as { is_nullable: string }[];
+  dueOptional = rows[0]?.is_nullable === "YES";
+  return dueOptional;
+}
+
 /* ---------- the form ---------- */
 
 export type TaskSubOption = { id: string; name: string; language: CrewLang; hasPhone: boolean; hasEmail: boolean; inactive: boolean };
@@ -184,14 +195,18 @@ export async function assignedSubId(accountId: string): Promise<string> {
 
 export type NewTaskFile = { url: string; name: string; size: number; contentType: string };
 
-export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string; link?: TaskLink; taskPage?: unknown; photosRequired?: boolean }): Promise<number> {
+export async function createTask(input: { accountId: string; subId: string; task: string; dueDate: string; dueTime: string; urgent: boolean; files: NewTaskFile[]; by: string; byStaffId: string; link?: TaskLink; taskPage?: unknown; photosRequired?: boolean; noDueDate?: boolean }): Promise<number> {
   const page = input.taskPage ? await checkedTaskPage(input.taskPage) : null;
-  // An extra job's task says exactly what the job says, for the job's day.
-  if (input.link?.jobDescription) input = { ...input, task: input.link.jobDescription, dueDate: input.link.jobDate ?? input.dueDate };
+  // An extra job's task says exactly what the job says, for the job's day (or, when asked, with no due date).
+  if (input.link?.jobDescription) input = { ...input, task: input.link.jobDescription, dueDate: input.noDueDate ? "" : (input.link.jobDate ?? input.dueDate) };
   const pageData = { ...(page ? { en: page } : {}), ...(input.photosRequired ? { photosRequired: true } : {}) };
   const task = clean(input.task).slice(0, TASK_MAX);
   if (!task) throw new CwNowTaskError("Write the task.");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw new CwNowTaskError("Pick the due date.");
+  if (input.dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(input.dueDate)) throw new CwNowTaskError("Pick the due date.");
+  if (!input.dueDate) {
+    if (cleanTaskTime(input.dueTime)) throw new CwNowTaskError("Pick a due date for that time, or clear the time.");
+    if (!(await noDueDateReady())) throw new CwNowTaskError("Saving with no due date needs database update 092. Pick a date for now.");
+  }
   if (input.files.length > TASK_MAX_FILES) throw new CwNowTaskError(`Up to ${TASK_MAX_FILES} files.`);
   const files = input.files.map((file) => {
     const url = toStoredUrl(file.url);
@@ -234,7 +249,7 @@ export async function createTask(input: { accountId: string; subId: string; task
   // All or nothing: the task, its files, its history and its paper.
   await sql.transaction([
     sql`INSERT INTO cw_now_tasks (id, token, account_id, account_name, sub_id, sub_name, task, due_date, due_time, priority, created_by, created_by_staff_id)
-        VALUES (${id}, ${token}, ${account.id}, ${accountName}, ${sub.id}, ${name}, ${task}, ${input.dueDate}::date, ${dueTime}, ${priority}, ${input.by}, ${input.byStaffId})`,
+        VALUES (${id}, ${token}, ${account.id}, ${accountName}, ${sub.id}, ${name}, ${task}, ${input.dueDate || null}::date, ${dueTime}, ${priority}, ${input.by}, ${input.byStaffId})`,
     sql`INSERT INTO cw_now_task_files (task_id, source, file_url, file_name, file_size, content_type, uploaded_by)
         SELECT ${id}::bigint, 'office', f.url, f.name, f.size, f."contentType", ${input.by}
         FROM jsonb_to_recordset(${JSON.stringify(files)}::jsonb) AS f(url text, name text, size bigint, "contentType" text)`,
@@ -291,6 +306,8 @@ export async function deliverNewTask(taskId: number, origin: string): Promise<vo
 const calendarWhy = (row: Pick<TaskRow, "sub_name" | "task">) => `${clean(row.sub_name) || "Sub"}: ${shortTask(row.task, 80)}`;
 
 async function addCalendarEvent(row: TaskRow): Promise<void> {
+  // No due date: not on any calendar.
+  if (!row.due_date) return;
   const location = await todoLocation(row.account_id, row.account_name);
   const result = await createCalendarEventForToDo({
     taskType: "CW Now",
@@ -608,7 +625,7 @@ export async function doneFromLink(token: string, name: string, origin: string):
 /** The phone calendar file for this link's task. Null when the link is not good. */
 export async function taskCalendarFile(token: string): Promise<string | null> {
   const row = await taskByToken(token);
-  if (!row) return null;
+  if (!row || !row.due_date) return null;
   const lang = langOf(row);
   const translated = row.translations?.[lang];
   const location = await todoLocation(row.account_id, row.account_name);
@@ -704,6 +721,16 @@ async function subPayFor(rows: Pick<TaskRow, "id" | "extra_job_id" | "sub_id">[]
 
 /* ---------- the AI task page (migration 088, FEATURE_AI_TASK_PAGE) ---------- */
 
+/** What the phone view shows around the task, for the office's preview. For a job: the sub's pay only, never the customer price. */
+export async function taskPreviewFacts(input: { accountId: string; byStaffId: string; jobId?: string }): Promise<{ location: string; contact: TaskContact; youGetPaid: number | null }> {
+  const [location, contact, jobs] = await Promise.all([
+    todoLocation(input.accountId, "").catch(() => ""),
+    taskContact({ created_by_staff_id: input.byStaffId, account_id: input.accountId }),
+    input.jobId && /^\d+$/.test(input.jobId) ? (getSql()`SELECT sub_pay FROM extra_jobs WHERE id = ${Number(input.jobId)} AND account_id = ${input.accountId} LIMIT 1` as unknown as Promise<{ sub_pay: string | number }[]>) : Promise.resolve([]),
+  ]);
+  return { location, contact, youGetPaid: jobs[0] ? Number(jobs[0].sub_pay) || 0 : null };
+}
+
 export const aiTaskPageOn = async () => rolloutOn("AI_TASK_PAGE") && (await cwNowTasksReady()) && (await cwNowLinksReady());
 const pagesOf = (row: Pick<TaskRow, "task_page">): TaskPages | null => (rolloutOn("AI_TASK_PAGE") ? readTaskPages(row.task_page) : null);
 
@@ -772,6 +799,7 @@ export async function jobForTask(jobId: string) {
   const open = (await getSql()`SELECT id, sub_name FROM cw_now_tasks WHERE extra_job_id = ${Number(jobId)} AND status <> 'cancelled' ORDER BY id DESC LIMIT 1`) as { id: number; sub_name: string }[];
   return {
     jobNumber: job.jobNumber,
+    accountId: job.accountId,
     accountName: job.accountName,
     description: job.description,
     jobDate: job.jobDate,
@@ -784,7 +812,7 @@ export async function jobForTask(jobId: string) {
 }
 
 /** An existing extra job goes to its own sub's CW Now: a task linked to it, never a second job. */
-export async function sendJobToCwNow(input: { jobId: string; dueTime: string; urgent: boolean; photosRequired: boolean; by: string; byStaffId: string }): Promise<number> {
+export async function sendJobToCwNow(input: { jobId: string; dueTime: string; noDueDate?: boolean; taskPage?: unknown; urgent: boolean; photosRequired: boolean; by: string; byStaffId: string }): Promise<number> {
   if (!(await cwNowLinksOn())) throw new CwNowTaskError("This is not turned on here yet.");
   const job = /^\d+$/.test(input.jobId) ? await getExtraJob(input.jobId) : null;
   if (!job) throw new CwNowTaskError("That extra job was not found.");
@@ -802,6 +830,8 @@ export async function sendJobToCwNow(input: { jobId: string; dueTime: string; ur
     byStaffId: input.byStaffId,
     link,
     photosRequired: input.photosRequired,
+    noDueDate: input.noDueDate,
+    taskPage: input.taskPage,
   });
 }
 
@@ -837,7 +867,7 @@ export async function complaintForTask(key: string) {
  * counts twice on the sub score: this only makes a task that points at it.
  * Move: its pin leaves Complaints until the task ends. Duplicate: it stays.
  */
-export async function sendComplaintToCwNow(input: { key: string; subId: string; mode: "move" | "duplicate"; task: string; dueDate: string; dueTime: string; urgent: boolean; by: string; byStaffId: string }): Promise<number> {
+export async function sendComplaintToCwNow(input: { key: string; subId: string; mode: "move" | "duplicate"; task: string; dueDate: string; dueTime: string; urgent: boolean; by: string; byStaffId: string; taskPage?: unknown }): Promise<number> {
   if (!(await cwNowLinksOn())) throw new CwNowTaskError("This is not turned on here yet.");
   const rowId = await complaintRowId(input.key);
   const facts = rowId === null ? null : await complaintFacts(rowId);
@@ -857,6 +887,7 @@ export async function sendComplaintToCwNow(input: { key: string; subId: string; 
     by: input.by,
     byStaffId: input.byStaffId,
     link: { complaintRowId: rowId, complaintMode: input.mode },
+    taskPage: input.taskPage,
   });
   if (input.mode === "move") {
     await getSql()`

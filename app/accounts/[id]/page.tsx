@@ -39,6 +39,7 @@ import PhotosLink from "./photos-link";
 import AccountEverything from "./account-everything";
 import AccountSignals from "./account-signals";
 import AccountCheckins from "./checkins";
+import TeamTodos from "./team-todos";
 import AccountContacts from "../../components/AccountContacts";
 import SupplyMode from "./supply-mode";
 import SiteStock from "./site-stock";
@@ -1380,6 +1381,10 @@ export default function AccountDetailPage() {
             {/* Customer check-ins: Send check-in, the last answer, and every one sent (with View email). */}
             <div className="account-detail-print-hide">
               <AccountCheckins accountId={thisAccountId} cancelled={/^cancel/i.test(String(account.status ?? "").trim())} />
+            </div>
+            {/* Every CW Now to-do on this account. Read only: a tap opens its card. */}
+            <div className="account-detail-print-hide">
+              <TeamTodos accountId={thisAccountId} />
             </div>
             {/* The full name: the bar at the top shortens long ones. */}
             <div>

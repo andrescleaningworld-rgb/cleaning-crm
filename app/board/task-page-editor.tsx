@@ -19,7 +19,7 @@ export default function TaskPageEditor({ page, onChange, onRemove }: { page: Tas
 
   return (
     <div className="ui-stack" style={{ border: "2px solid #005bbb", borderRadius: 14, padding: 12 }}>
-      <p className="ui-strong" style={{ margin: 0 }}>Preview. Nothing goes out until you press Save and send.</p>
+      <p className="ui-strong" style={{ margin: 0 }}>Your task page. Nothing goes out until you tap Send to team.</p>
       {editing ? (
         <>
           <Field label="Title" maxLength={160} value={page.title} onChange={(event) => set({ title: event.target.value })} />

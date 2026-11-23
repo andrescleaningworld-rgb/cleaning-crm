@@ -7,11 +7,13 @@
 import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import AccountPickerField, { type PickedAccount } from "@/app/components/AccountPickerField";
-import { BigButton, CHEER, Field, SelectField, Sheet, TextAreaField, showToast } from "@/app/ui";
+import SubPickerField from "@/app/components/SubPickerField";
+import { BigButton, CHEER, Field, Sheet, TextAreaField, showToast } from "@/app/ui";
 import { whatsappHref } from "@/lib/crewLinkPeople";
 import { sizeText } from "@/lib/accountDocuments";
 import {
   CW_NOW_STATUS_LABEL,
+  DUE_STYLE,
   TASK_FILE_ACCEPT,
   TASK_FILE_EXTENSIONS,
   TASK_FILE_MAX_BYTES,
@@ -22,15 +24,19 @@ import {
   TASK_VIDEO_MAX_BYTES,
   cwNowStepsLine,
   isOpenTask,
+  taskDueState,
   taskDueText,
+  taskDueWord,
   type CwNowShareMethod,
   type StaffTask,
+  type StaffTaskRow,
 } from "@/lib/cwNowTasks";
 import type { TaskSubOption } from "@/lib/pg/cw-now-tasks";
 import ExtraJobForm from "../extra-jobs/new/form";
 import type { ExtraJob } from "@/lib/extraJobs";
 import { hasOfficeOnlyWords, type TaskPage } from "@/lib/taskPage";
 import TaskPageEditor from "./task-page-editor";
+import TaskSendPreview, { useTaskPreview } from "./task-send-preview";
 import styles from "./board.module.css";
 
 async function postTask(body: Record<string, unknown>): Promise<Record<string, unknown>> {
@@ -47,12 +53,39 @@ const fileProblem = (file: File) => {
   return file.size > max ? `${file.name} is too big (up to ${Math.round(max / (1024 * 1024))} MB).` : "";
 };
 
+/* ---------- one to-do in a list ---------- */
+
+/** One row of the to-do lists (CW Now to-dos, the account page): due date in its color, late in red. A tap opens its card. */
+export function StaffTaskButton({ task, today, hideAccount = false, onOpen }: { task: StaffTaskRow; today: string; hideAccount?: boolean; onOpen: () => void }) {
+  const due = taskDueState(task.dueDate, task.status, today);
+  const word = taskDueWord(task.dueDate, due, "en");
+  const kind = task.kind ? (task.kind === "extra" ? "Extra job" : "Complaint") : "";
+  const urgent = task.urgent && task.status !== "done" ? "⚠ Urgent" : "";
+  const top = [hideAccount ? "" : task.accountName, kind].filter(Boolean).join(" · ");
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-due-state={due}
+      style={{ width: "100%", textAlign: "left", background: "#fff", border: `3px solid ${DUE_STYLE[due].borderColor}`, borderRadius: 14, padding: 12, display: "grid", gap: 4 }}
+    >
+      <span style={{ background: DUE_STYLE[due].background, color: DUE_STYLE[due].color, borderRadius: 8, padding: "4px 10px", fontWeight: 900, fontSize: 18 }}>
+        {word ? `${word} · ` : ""}{taskDueText(task.dueDate, task.dueTime, "en")}
+      </span>
+      {top || urgent ? <span className="ui-strong">{[top, urgent].filter(Boolean).join(" ")}</span> : null}
+      <span className="ui-muted">{task.subName} · {CW_NOW_STATUS_LABEL[task.status]}</span>
+      <span style={{ whiteSpace: "pre-wrap", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{task.task}</span>
+    </button>
+  );
+}
+
 /* ---------- Add to-do ---------- */
 
 export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: () => void }) {
   const [opening, setOpening] = useState(0);
   const [ready, setReady] = useState<boolean | null>(null);
   const [subs, setSubs] = useState<TaskSubOption[]>([]);
+  const subsNow = useRef<TaskSubOption[]>([]);
   const [privateFiles, setPrivateFiles] = useState(false);
   const [linksOn, setLinksOn] = useState(false);
   const [account, setAccount] = useState<PickedAccount | null>(null);
@@ -71,10 +104,13 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
   const savedJob = useRef<ExtraJob | null>(null);
   const [extraFacts, setExtraFacts] = useState({ description: "", jobDate: "", inHouse: false });
   const [photosRequired, setPhotosRequired] = useState(false);
-  // "Make task page with AI": a draft the office edits. Nothing goes out until Save and send.
+  // The AI task page and its preview. Nothing goes out until "Send to team".
   const [aiPageOn, setAiPageOn] = useState(false);
-  const [page, setPage] = useState<TaskPage | null>(null);
-  const [drafting, setDrafting] = useState(false);
+  const preview = useTaskPreview();
+  const resetPreview = useRef(preview.reset);
+  useEffect(() => {
+    resetPreview.current = preview.reset;
+  });
   const [files, setFiles] = useState<File[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -94,7 +130,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     savedJob.current = null;
     setExtraFacts({ description: "", jobDate: "", inHouse: false });
     setPhotosRequired(false);
-    setPage(null);
+    resetPreview.current();
     setFiles([]);
     setError("");
     setReady(null);
@@ -105,7 +141,8 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         if (!alive) return;
         if (data.success !== true) throw new Error("failed");
         setReady(data.ready === true);
-        setSubs(data.subs ?? []);
+        subsNow.current = data.subs ?? [];
+        setSubs(subsNow.current);
         setPrivateFiles(data.privateFiles === true);
         setLinksOn(data.linksOn === true);
         setCwLinksOn(data.cwLinksOn === true);
@@ -132,8 +169,10 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
       .then((data: { assignedSubId?: string }) => {
         if (!alive) return;
         const id = data.assignedSubId ?? "";
-        setSubId(id);
-        setSubNote(id ? "This account's sub. You can pick another." : "This account has no linked sub. Pick one.");
+        // Only active subs can be picked, so an inactive one does not fill in.
+        const inactive = subsNow.current.find((entry) => entry.id === id && entry.inactive);
+        setSubId(inactive ? "" : id);
+        setSubNote(inactive ? `This account's sub (${inactive.name}) is inactive. Pick another.` : id ? "This account's sub. You can pick another." : "This account has no linked sub. Pick one.");
       })
       .catch(() => {
         if (alive) setSubNote("Pick the sub.");
@@ -155,31 +194,48 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     setFiles((now) => [...now, ...picked]);
   }
 
-  async function makePage() {
-    setError("");
-    const words = isExtra ? extraFacts.description : task;
-    if (!words.trim()) return setError(isExtra ? "Write what the job is first." : "Write a few words in Task first.");
-    setDrafting(true);
-    try {
-      const data = await postTask({ action: "aiPage", words: words.trim(), accountName: account?.name ?? "", dueDate: isExtra ? extraFacts.jobDate : dueDate, dueTime });
-      setPage(data.page as TaskPage);
-    } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : "The AI did not answer. Try again.");
-    } finally {
-      setDrafting(false);
+  const taskWords = (isExtra ? extraFacts.description : task).trim();
+  const page = preview.pageFor(taskWords);
+
+  /** What must be fixed before it can go, or "". */
+  function formProblem(): string {
+    if (!account?.id) return accountQuery.trim() ? "Pick the account from the list." : "Pick the account.";
+    if (!isExtra) {
+      if (!subId) return "Pick the sub.";
+      if (sub?.inactive) return "This sub is inactive. Pick an active sub.";
+      if (!task.trim()) return "Write the task.";
+      if (dueTime && !dueDate) return "Pick a due date for that time, or clear the time.";
+    } else {
+      if (!extraFacts.description.trim()) return "Write what the job is first.";
+      if (hasOfficeOnlyWords(extraFacts.description)) return "Take the price or office words out of \"What is the job?\". The sub reads it.";
     }
+    return "";
   }
 
-  async function save() {
+  const previewAsk = () => ({ words: taskWords, accountId: account?.id ?? "", accountName: account?.name ?? "", dueDate: isExtra ? extraFacts.jobDate : dueDate, dueTime });
+
+  /** "Make task page with AI": the same preview, any time. It sends nothing. */
+  function makePage() {
     setError("");
-    if (!account?.id) return setError(accountQuery.trim() ? "Pick the account from the list." : "Pick the account.");
-    if (!isExtra) {
-      if (!subId) return setError("Pick the sub.");
-      if (!task.trim()) return setError("Write the task.");
-      if (!dueDate) return setError("Pick the due date.");
-    } else if (hasOfficeOnlyWords(extraFacts.description)) {
-      return setError("Take the price or office words out of \"What is the job?\". The sub reads it.");
-    }
+    if (!account?.id) return setError("Pick the account first.");
+    if (!taskWords) return setError(isExtra ? "Write what the job is first." : "Write a few words in Task first.");
+    void preview.make(previewAsk());
+  }
+
+  /** The form's Send: the preview first while the AI page is on, otherwise straight out as before. */
+  function trySend() {
+    setError("");
+    const problem = formProblem();
+    if (problem) return setError(problem);
+    // In-house sends nothing to a sub. A saved job waiting to be sent has already been previewed.
+    if (aiPageOn && !inHouseJob && !savedJob.current) return void preview.make(previewAsk());
+    void save(page);
+  }
+
+  async function save(chosenPage: TaskPage | null) {
+    setError("");
+    const problem = formProblem();
+    if (problem || !account?.id) return setError(problem || "Pick the account.");
     try {
       // An extra job: first the REAL job (EJ-...), with its Sale and the office's email.
       let job = savedJob.current;
@@ -203,7 +259,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         uploaded.push({ url: blob.url, name: file.name, size: file.size, contentType: file.type });
       }
       setBusy("Saving…");
-      await postTask({ action: "create", accountId: account.id, subId: job ? job.subId : subId, task: job ? job.description : task.trim(), dueDate: job ? job.jobDate : dueDate, dueTime, urgent, files: uploaded, ...(job ? { extraJobId: job.id, photosRequired } : {}), ...(page ? { taskPage: page } : {}) });
+      await postTask({ action: "create", accountId: account.id, subId: job ? job.subId : subId, task: job ? job.description : task.trim(), dueDate: job ? job.jobDate : dueDate, dueTime, urgent, files: uploaded, ...(job ? { extraJobId: job.id, photosRequired } : {}), ...(chosenPage ? { taskPage: chosenPage } : {}) });
       showToast(linksOn ? CHEER.logged : "Saved. Open the pin and use Share to send the link.");
       onAdded();
       onClose();
@@ -218,6 +274,8 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
   const inHouseJob = isExtra && extraFacts.inHouse;
 
   return (
+    <>
+    <TaskSendPreview preview={preview} urgent={urgent} kind={isExtra ? "extra" : ""} photosRequired={isExtra && photosRequired} fileNames={files.map((file) => file.name)} onSend={(chosen) => void save(chosen)} />
     <Sheet
       open={open}
       title="New CW Now to-do"
@@ -225,8 +283,8 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
       onClose={onClose}
       busy={Boolean(busy)}
       actions={
-        <BigButton busy={Boolean(busy)} busyLabel={busy} disabled={ready !== true} onClick={() => void save()}>
-          {inHouseJob ? "Save extra job" : "Save and send"}
+        <BigButton busy={Boolean(busy)} busyLabel={busy} disabled={ready !== true} onClick={trySend}>
+          {inHouseJob ? "Save extra job" : aiPageOn ? "Send" : "Save and send"}
         </BigButton>
       }
     >
@@ -234,15 +292,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         {ready === false ? <p className="ui-field-error">CW Now to-dos turn on after database update 087.</p> : null}
         {open ? <AccountPickerField key={opening} label="Account" value={account} onChange={setAccount} onQueryChange={setAccountQuery} /> : null}
         {isExtra ? null : (
-        <SelectField label="Sub" hint={subNote || undefined} value={subId} onChange={(event) => setSubId(event.target.value)}>
-          <option value="">Pick a sub</option>
-          {subs.map((entry) => (
-            <option key={entry.id} value={entry.id}>
-              {entry.name}
-              {entry.inactive ? " (Inactive)" : ""}
-            </option>
-          ))}
-        </SelectField>
+        <SubPickerField key={opening} label="Sub" hint={subNote || undefined} subs={subs} value={subId} onChange={setSubId} loading={ready === null} />
         )}
         {!isExtra && sub && !sub.hasPhone ? <p className="ui-muted">No phone on file for this sub, so no text goes out. Use Share on the pin.</p> : null}
         {cwLinksOn ? (
@@ -270,13 +320,13 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         {isExtra ? null : <TextAreaField label="Task" rows={5} maxLength={TASK_MAX} value={task} onChange={(event) => setTask(event.target.value)} />}
         {aiPageOn && !inHouseJob ? (
           <div className="ui-stack">
-            <BigButton kind="second" busy={drafting} busyLabel="Writing the page…" onClick={() => void makePage()} data-ai-page>
-              {page ? "Make it again with AI" : "Make task page with AI"}
+            <BigButton kind="second" onClick={makePage} data-ai-page>
+              Make task page with AI
             </BigButton>
-            {page ? <TaskPageEditor page={page} onChange={setPage} onRemove={() => setPage(null)} /> : null}
+            {page ? <TaskPageEditor key={preview.pageKey} page={page} onChange={preview.setPage} onRemove={preview.removePage} /> : null}
           </div>
         ) : null}
-        {isExtra ? null : <Field label="Due date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />}
+        {isExtra ? null : <Field label="Due date (optional)" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />}
         {inHouseJob ? null : <Field label="Time (optional)" type="time" value={dueTime} onChange={(event) => setDueTime(event.target.value)} />}
         {inHouseJob ? null : (
         <>
@@ -315,6 +365,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         {error ? <p className="ui-field-error" role="alert">{error}</p> : null}
       </div>
     </Sheet>
+    </>
   );
 }
 

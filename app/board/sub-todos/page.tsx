@@ -7,10 +7,11 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AccountPickerField, { type PickedAccount } from "@/app/components/AccountPickerField";
+import SubPickerField from "@/app/components/SubPickerField";
 import { BigButton, EmptyState, ErrorBox, Field, Screen, SelectField, Sheet, SkeletonList } from "@/app/ui";
-import { CW_NOW_STATUS_LABEL, DUE_STYLE, DUE_WORDS, officeToday, taskDueState, taskDueText, type StaffTaskRow, type TaskListStatus } from "@/lib/cwNowTasks";
+import { officeToday, type StaffTaskRow, type TaskListStatus } from "@/lib/cwNowTasks";
 import type { TaskSubOption } from "@/lib/pg/cw-now-tasks";
-import { CwNowAddSheet, CwNowTaskCard } from "../cw-now-task";
+import { CwNowAddSheet, CwNowTaskCard, StaffTaskButton } from "../cw-now-task";
 
 const STATUS_CHOICES: { value: TaskListStatus; label: string }[] = [
   { value: "open", label: "Open" },
@@ -71,14 +72,7 @@ function SubTodos() {
       <BigButton onClick={() => setAdding(true)} data-new-todo>+ New to-do</BigButton>
       <CwNowAddSheet open={adding} onClose={() => setAdding(false)} onAdded={load} />
       <div className="ui-stack">
-        <SelectField label="Sub" value={subId} onChange={(event) => setSubId(event.target.value)}>
-          <option value="">All subs</option>
-          {subs.map((sub) => (
-            <option key={sub.id} value={sub.id}>
-              {sub.name}{sub.inactive ? " (inactive)" : ""}
-            </option>
-          ))}
-        </SelectField>
+        <SubPickerField label="Sub" hint="Leave empty for all subs." subs={subs} value={subId} onChange={setSubId} includeInactive loading={state === "loading"} />
         <AccountPickerField label="Account (optional)" value={account} onChange={setAccount} />
         <SelectField label="Status" value={status} onChange={(event) => setStatus(event.target.value as TaskListStatus)}>
           {STATUS_CHOICES.map((choice) => (
@@ -104,26 +98,11 @@ function SubTodos() {
         <EmptyState title="No to-dos match" text="Try another sub, status or date." icon="check" />
       ) : (
         <ul className="ui-list-plain ui-stack" data-sub-todos>
-          {tasks.map((task) => {
-            const due = taskDueState(task.dueDate, task.status, today);
-            return (
-              <li key={task.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpenId(task.id)}
-                  data-due-state={due}
-                  style={{ width: "100%", textAlign: "left", background: "#fff", border: `3px solid ${DUE_STYLE[due].borderColor}`, borderRadius: 14, padding: 12, display: "grid", gap: 4 }}
-                >
-                  <span style={{ background: DUE_STYLE[due].background, color: DUE_STYLE[due].color, borderRadius: 8, padding: "4px 10px", fontWeight: 900, fontSize: 18 }}>
-                    {DUE_WORDS.en[due]} · {taskDueText(task.dueDate, task.dueTime, "en")}
-                  </span>
-                  <span className="ui-strong">{task.accountName}{task.kind ? ` · ${task.kind === "extra" ? "Extra job" : "Complaint"}` : ""}{task.urgent && task.status !== "done" ? " ⚠ Urgent" : ""}</span>
-                  <span className="ui-muted">{task.subName} · {CW_NOW_STATUS_LABEL[task.status]}</span>
-                  <span style={{ whiteSpace: "pre-wrap", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{task.task}</span>
-                </button>
-              </li>
-            );
-          })}
+          {tasks.map((task) => (
+            <li key={task.id}>
+              <StaffTaskButton task={task} today={today} onOpen={() => setOpenId(task.id)} />
+            </li>
+          ))}
         </ul>
       )}
 

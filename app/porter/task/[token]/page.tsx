@@ -265,7 +265,7 @@ export default function CwNowTaskPage() {
                 </button>
               </>
             ) : null}
-            <a className={`${BIG} flex items-center justify-center`} href={`${api}/calendar`}>📅 {words.calendar}</a>
+            {task.dueDate ? <a className={`${BIG} flex items-center justify-center`} href={`${api}/calendar`}>📅 {words.calendar}</a> : null}
           </div>
         ) : null}
 
