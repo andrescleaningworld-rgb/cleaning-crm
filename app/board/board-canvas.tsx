@@ -113,7 +113,7 @@ export function PaperFace({ paper, settings, tv = false, now, handedTo = "" }: {
 
 export function paperClass(paper: Paper, settings: BoardSettings, now: Date): string {
   // An account update is a green note; every other note is yellow.
-  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""} ${paper.flow?.red || paper.complaintTrack?.red || paper.alert || (paper.kind === "cwnow" && !paper.doneAt && isOverdue(paper, now)) ? styles.flowRed : ""}`;
+  return `${styles.paper} ${styles[paper.kind]} ${paper.label === "Account update" ? styles.updateNote : ""} ${isOld(paper, settings, now) ? styles.old : ""} ${paper.flow?.red || paper.complaintTrack?.red || paper.alert || (paper.kind === "cwnow" && !paper.doneAt && isOverdue(paper, now)) || (paper.kind === "note" && /^checkin:\d+:ok$/.test(paper.itemId) && isOverdue(paper, now)) ? styles.flowRed : ""}`;
 }
 
 /* ---------- a full square: the papers that fit, then a pile ---------- */

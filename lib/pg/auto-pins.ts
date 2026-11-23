@@ -25,11 +25,13 @@ export type AutoPaper = {
   square: string;
   accountId?: string;
   accountName?: string;
+  /** YYYY-MM-DD: the paper shows as overdue after this day. */
+  dueDate?: string;
 };
 
 /** Puts the paper up, once. true when it went up now. */
 export async function pinOnce(paper: AutoPaper): Promise<boolean> {
-  const data = { label: paper.label, notes: paper.notes.slice(0, 600), href: paper.href, recordType: "reminder", box: "" };
+  const data = { label: paper.label, notes: paper.notes.slice(0, 600), href: paper.href, recordType: "reminder", box: "", ...(paper.dueDate ? { dueDate: paper.dueDate } : {}) };
   const rows = (await getSql()`
     INSERT INTO handoff_items (kind, item_id, title, account_id, account_name, manager, step, data, created_by, board_pinned_at, board_square)
     VALUES ('note', ${paper.itemId}, ${paper.title.slice(0, 300) || paper.label}, ${paper.accountId ?? ""}, ${paper.accountName ?? ""}, '', 'pinned',
@@ -74,6 +76,22 @@ export async function updatePaperNotes(itemId: string, notes: string): Promise<v
     UPDATE handoff_items SET data = data || jsonb_build_object('notes', ${notes.slice(0, 600)}::text)
     WHERE kind = 'note' AND item_id = ${itemId}
   `;
+}
+
+/** The square a paper is in now (it may have been moved), or null when there is no such paper. */
+export async function paperSquare(itemId: string): Promise<string | null> {
+  const rows = (await getSql()`SELECT board_square FROM handoff_items WHERE kind = 'note' AND item_id = ${itemId}`) as { board_square: string }[];
+  return rows[0]?.board_square ?? null;
+}
+
+/** Puts a paper back up, only when it came down for this reason (never one a person took down). true when it did. */
+export async function putPaperBackUp(itemId: string, downBecause: string, dueDate: string): Promise<boolean> {
+  const rows = (await getSql()`
+    UPDATE handoff_items SET board_done_at = NULL, board_done_by = '', data = data || jsonb_build_object('dueDate', ${dueDate}::text)
+    WHERE kind = 'note' AND item_id = ${itemId} AND board_done_at IS NOT NULL AND left(board_done_by, ${downBecause.length}) = ${downBecause}
+    RETURNING item_id
+  `) as unknown[];
+  return rows.length > 0;
 }
 
 /** Takes down every paper still up whose item_id starts with the prefix. */

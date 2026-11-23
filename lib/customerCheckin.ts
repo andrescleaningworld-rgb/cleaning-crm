@@ -111,7 +111,7 @@ function bigButton(label: string, url: string, color: string): string {
   );
 }
 
-function signatureLines(input: Pick<CheckinEmailInput, "managerName" | "managerPhone" | "managerEmail">): string[] {
+export function signatureLines(input: Pick<CheckinEmailInput, "managerName" | "managerPhone" | "managerEmail">): string[] {
   return [input.managerName || "Your Cleaning World Team", input.managerName ? "Your Account Manager, Cleaning World" : "", input.managerPhone, input.managerEmail].filter(Boolean);
 }
 
@@ -156,6 +156,33 @@ export function checkinEmail(input: CheckinEmailInput): { subject: string; html:
   return { subject, html: welcomeDocumentHtml(subject, body), text };
 }
 
+/* ---------- the reply to an OK answer ---------- */
+
+/** On the answer page and in the reply email. Never promises a visit date. */
+export const CHECKIN_OK_LINE = "Thanks for letting us know. We want your cleaning to be great, not just fine. Is there anything we could do better?";
+const CHECKIN_OK_BUTTON = "Share your feedback";
+
+/** The one short email after an OK answer, signed with the manager's name and phone. */
+export function checkinOkEmail(input: { customerName: string; managerName: string; managerPhone: string; betterUrl: string; stopUrl: string }): { subject: string; html: string; text: string } {
+  const subject = "Thanks for letting us know";
+  const signature = signatureLines({ managerName: input.managerName, managerPhone: input.managerPhone, managerEmail: "" });
+  const body =
+    welcomeTopHtml(subject) +
+    `<div style="background:#ffffff;padding:18px 16px 8px;">` +
+    `<p style="margin:0 0 6px;font-size:17px;font-weight:700;color:${C.label};">${esc(input.customerName)}</p>` +
+    `<p style="margin:0 0 18px;font-size:16px;line-height:1.55;color:${C.text};">${esc(CHECKIN_OK_LINE)}</p>` +
+    bigButton(CHECKIN_OK_BUTTON, input.betterUrl, C.bar) +
+    `</div>` +
+    `<div style="background:#ffffff;padding:8px 16px 16px;font-size:14px;line-height:1.6;color:${C.text};">` +
+    `<div style="border-top:1px solid ${C.line};padding-top:10px;">` +
+    signature.map((line, index) => (index === 0 ? `<strong style="color:${C.label};">${esc(line)}</strong>` : esc(line))).join("<br>") +
+    `</div></div>` +
+    welcomeFooterHtml() +
+    `<p style="margin:12px 0 0;font-size:12px;color:${C.muted};text-align:center;">Don't want these emails? <a href="${esc(input.stopUrl)}" style="color:${C.muted};">Stop them</a>.</p>`;
+  const text = [CHECKIN_OK_LINE, "", `${CHECKIN_OK_BUTTON}: ${input.betterUrl}`, "", ...signature, "", `Stop these emails: ${input.stopUrl}`].join("\n");
+  return { subject, html: welcomeDocumentHtml(subject, body), text };
+}
+
 /* ---------- the answer page (app/checkin) ---------- */
 
 export const CHECKIN_PAGE = {
@@ -165,7 +192,7 @@ export const CHECKIN_PAGE = {
   got: "Got it, thanks!",
   prompt: {
     great: "Anything we could do even better?",
-    ok: "What would make it better?",
+    ok: CHECKIN_OK_LINE,
     attention: "Sorry about that! What's not right?",
   } as Record<CheckinRating, string>,
   hint: {

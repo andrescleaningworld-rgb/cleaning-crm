@@ -10,6 +10,7 @@
 
 import { getSql } from "@/lib/db";
 import { HIDDEN_ACCOUNT_IDS } from "@/lib/pg/account-live";
+import { takeDownOkPinsAfterVisit } from "@/lib/pg/checkin-follow-up";
 import { ACTIVE as ACTIVE_ACCOUNT } from "@/lib/pg/no-schedule";
 import { dateOrNull, toISO } from "@/lib/dateUtils";
 import type { CustomerVisit, ManagerVisit, ManagerVisitUpdateInput, VisitEditLogEntry, VisitEditLogInput } from "@/lib/googleSheets";
@@ -418,7 +419,7 @@ export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
        $3::text, $4::date, $5::text, $6::text, $7::text, $8::numeric, $9::text, $10::text,
        $11::text, $12::timestamptz, $11::text, $12::timestamptz, $13::text, $14::date, next.n
      FROM next, taken, LATERAL (SELECT CASE WHEN taken.c = 0 THEN $1::text ELSE $1::text || '-' || (taken.c + 1)::text END AS vid) ids
-     RETURNING visit_id`,
+     RETURNING visit_id, account_ref`,
     [
       baseId,
       data.accountName,
@@ -436,8 +437,12 @@ export async function addVisit(data: AddVisitInput): Promise<{ id: string }> {
       toDay(data.followUpDate),
       data.accountId ?? "",
     ]
-  )) as { visit_id: string }[];
+  )) as { visit_id: string; account_ref: string | null }[];
   const visitId = rows[0].visit_id;
+  // A check-in's "OK: visit within 5 business days" paper comes down. A failure here never undoes the visit.
+  await takeDownOkPinsAfterVisit(rows[0].account_ref, toDay(data.visitDate)).catch((error) => {
+    console.error("[visits] check-in paper not cleared:", error instanceof Error ? error.message : error);
+  });
   // Migration 086: the account's sub now (kept even if the account changes subs
   // later) and who did it by Staff ID. A failure here never undoes the visit.
   if (await visitSubColumnsReady()) {
