@@ -27,6 +27,8 @@ export type AccountSummary = {
   photos: Count;
   todos: Count;
   sales: Count;
+  /** The To-dos tile: open team (CW Now) + open office to-dos, and how many of them are late. */
+  openTodos: { open: number; late: number } | null;
 };
 
 // A real account, as the staff screens list them (test and deleted accounts are left out, like /api/accounts does).
@@ -94,5 +96,23 @@ export async function getAccountSummary(accountId: string): Promise<AccountSumma
   ]);
 
   const supplyOrders: Count = subOrders || crewOrders ? { total: (subOrders?.total ?? 0) + (crewOrders?.total ?? 0), open: (subOrders?.open ?? 0) + (crewOrders?.open ?? 0) } : null;
-  return { accountName: me[0].name, visits, updates, extraJobs, complaints, supplyOrders, photos, todos, sales };
+
+  // The To-dos tile. A task with no due date is never late. Each read stands alone.
+  const today = `(now() AT TIME ZONE 'America/New_York')::date`;
+  const openLate = async (query: string, values: unknown[]) => {
+    try {
+      const rows = (await sql.query(query, values)) as { open: number; late: number }[];
+      return { open: rows[0]?.open ?? 0, late: rows[0]?.late ?? 0 };
+    } catch {
+      return null;
+    }
+  };
+  const [officeOpen, teamOpen] = await Promise.all([
+    openLate(`SELECT count(*)::int AS open, count(*) FILTER (WHERE t.due_date < ${today})::int AS late FROM todos t
+              WHERE lower(btrim(t.status)) NOT IN ('done', 'cancelled', 'canceled', 'completed') AND ${belongs("t.account_id_raw", "t.account_name")}`, params),
+    openLate(`SELECT count(*)::int AS open, count(*) FILTER (WHERE t.due_date < ${today})::int AS late FROM cw_now_tasks t
+              WHERE t.status NOT IN ('done', 'cancelled') AND lower(btrim(t.account_id)) = lower($1)`, [id]),
+  ]);
+  const openTodos = officeOpen || teamOpen ? { open: (officeOpen?.open ?? 0) + (teamOpen?.open ?? 0), late: (officeOpen?.late ?? 0) + (teamOpen?.late ?? 0) } : null;
+  return { accountName: me[0].name, visits, updates, extraJobs, complaints, supplyOrders, photos, todos, sales, openTodos };
 }

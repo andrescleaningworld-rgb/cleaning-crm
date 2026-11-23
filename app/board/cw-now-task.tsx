@@ -56,7 +56,7 @@ const fileProblem = (file: File) => {
 /* ---------- one to-do in a list ---------- */
 
 /** One row of the to-do lists (CW Now to-dos, the account page): due date in its color, late in red. A tap opens its card. */
-export function StaffTaskButton({ task, today, hideAccount = false, onOpen }: { task: StaffTaskRow; today: string; hideAccount?: boolean; onOpen: () => void }) {
+export function StaffTaskButton({ task, today, hideAccount = false, statusText, onOpen }: { task: StaffTaskRow; today: string; hideAccount?: boolean; /** An office to-do's own status words. */ statusText?: string; onOpen: () => void }) {
   const due = taskDueState(task.dueDate, task.status, today);
   const word = taskDueWord(task.dueDate, due, "en");
   const kind = task.kind ? (task.kind === "extra" ? "Extra job" : "Complaint") : "";
@@ -73,7 +73,7 @@ export function StaffTaskButton({ task, today, hideAccount = false, onOpen }: { 
         {word ? `${word} · ` : ""}{taskDueText(task.dueDate, task.dueTime, "en")}
       </span>
       {top || urgent ? <span className="ui-strong">{[top, urgent].filter(Boolean).join(" ")}</span> : null}
-      <span className="ui-muted">{task.subName} · {CW_NOW_STATUS_LABEL[task.status]}</span>
+      <span className="ui-muted">{task.subName} · {statusText || CW_NOW_STATUS_LABEL[task.status]}</span>
       <span style={{ whiteSpace: "pre-wrap", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{task.task}</span>
     </button>
   );
@@ -81,7 +81,11 @@ export function StaffTaskButton({ task, today, hideAccount = false, onOpen }: { 
 
 /* ---------- Add to-do ---------- */
 
-export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClose: () => void; onAdded: () => void }) {
+export function CwNowAddSheet({ open, onClose, onAdded, presetAccount = null }: { open: boolean; onClose: () => void; onAdded: () => void; /** Opened from an account: it is picked, and its sub fills in. */ presetAccount?: PickedAccount | null }) {
+  const preset = useRef(presetAccount);
+  useEffect(() => {
+    preset.current = presetAccount;
+  });
   const [opening, setOpening] = useState(0);
   const [ready, setReady] = useState<boolean | null>(null);
   const [subs, setSubs] = useState<TaskSubOption[]>([]);
@@ -118,7 +122,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
   useEffect(() => {
     if (!open) return;
     setOpening((count) => count + 1);
-    setAccount(null);
+    setAccount(preset.current);
     setAccountQuery("");
     setSubId("");
     setSubNote("");
@@ -143,6 +147,8 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
         setReady(data.ready === true);
         subsNow.current = data.subs ?? [];
         setSubs(subsNow.current);
+        // The account's sub filled in before this list arrived and is inactive: it comes back out.
+        setSubId((now) => (subsNow.current.some((entry) => entry.id === now && entry.inactive) ? "" : now));
         setPrivateFiles(data.privateFiles === true);
         setLinksOn(data.linksOn === true);
         setCwLinksOn(data.cwLinksOn === true);
@@ -180,7 +186,7 @@ export function CwNowAddSheet({ open, onClose, onAdded }: { open: boolean; onClo
     return () => {
       alive = false;
     };
-  }, [accountId]);
+  }, [accountId, opening]);
 
   const sub = subs.find((entry) => entry.id === subId);
 

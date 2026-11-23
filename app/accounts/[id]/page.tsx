@@ -40,6 +40,7 @@ import AccountEverything from "./account-everything";
 import AccountSignals from "./account-signals";
 import AccountCheckins from "./checkins";
 import TeamTodos from "./team-todos";
+import { CwNowAddSheet } from "@/app/board/cw-now-task";
 import AccountContacts from "../../components/AccountContacts";
 import SupplyMode from "./supply-mode";
 import SiteStock from "./site-stock";
@@ -382,6 +383,10 @@ export default function AccountDetailPage() {
   // Bumped by a saved Price & frequency change: its Change history reloads.
   const [priceChangeVersion, setPriceChangeVersion] = useState(0);
   const [showToDo, setShowToDo] = useState(false);
+  // "Add to-do": who is it for? The team (CW Now) or the office.
+  const [askToDoFor, setAskToDoFor] = useState(false);
+  const [showTeamToDo, setShowTeamToDo] = useState(false);
+  const [todosChanged, setTodosChanged] = useState(0);
   const [showKeys, setShowKeys] = useState(false);
   // Pin Board: the "Pin to board" button (only where accounts are switched on in Settings -> Pin Board).
   const { info: pinInfo, reload: reloadPinInfo } = usePinInfo();
@@ -1382,9 +1387,9 @@ export default function AccountDetailPage() {
             <div className="account-detail-print-hide">
               <AccountCheckins accountId={thisAccountId} cancelled={/^cancel/i.test(String(account.status ?? "").trim())} />
             </div>
-            {/* Every CW Now to-do on this account. Read only: a tap opens its card. */}
+            {/* This account's open CW Now to-dos. Read only: a tap opens its card. */}
             <div className="account-detail-print-hide">
-              <TeamTodos accountId={thisAccountId} />
+              <TeamTodos accountId={thisAccountId} accountName={accountName} reloadKey={todosChanged} />
             </div>
             {/* The full name: the bar at the top shortens long ones. */}
             <div>
@@ -1414,7 +1419,7 @@ export default function AccountDetailPage() {
                 disabled={!hasContactPhone}
                 data-tip="call"
               />
-              <Tile icon="todo" label="Add to-do" onClick={() => setShowToDo(true)} />
+              <Tile icon="todo" label="Add to-do" onClick={() => setAskToDoFor(true)} />
               <Tile icon="problem" label="Log problem" href={accountComplaintLink} />
               <Tile icon="visit" label="Log visit" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}&${backToAccount}`} />
               <Tile icon="money" label="+ Extra job" href={`/extra-jobs/new?accountId=${accountIdForUrl}&${backToAccount}`} />
@@ -1422,11 +1427,29 @@ export default function AccountDetailPage() {
             </div>
 
             {/* Visits, updates, extra jobs, complaints, supply orders, photos, to-dos and sales of this account, with how many. */}
-            <AccountEverything accountId={thisAccountId} accountName={accountName} />
+            <AccountEverything accountId={thisAccountId} accountName={accountName} reloadKey={todosChanged} />
+
+            <Sheet open={askToDoFor} title="Who is it for?" text={accountName} onClose={() => setAskToDoFor(false)}>
+              <div className="ui-stack">
+                <BigButton onClick={() => { setAskToDoFor(false); setShowTeamToDo(true); }} data-todo-for="team">
+                  The team (CW Now)
+                </BigButton>
+                <BigButton onClick={() => { setAskToDoFor(false); setShowToDo(true); }} data-todo-for="office">
+                  The office
+                </BigButton>
+              </div>
+            </Sheet>
+
+            <CwNowAddSheet
+              open={showTeamToDo}
+              onClose={() => setShowTeamToDo(false)}
+              onAdded={() => setTodosChanged((count) => count + 1)}
+              presetAccount={thisAccountId ? { id: thisAccountId, name: accountName } : null}
+            />
 
             <QuickToDoSheet
               open={showToDo}
-              onClose={() => setShowToDo(false)}
+              onClose={() => { setShowToDo(false); setTodosChanged((count) => count + 1); }}
               accountId={getAccountId(account, rawAccountIdFromUrl)}
               accountName={accountName}
               manager={account.manager}

@@ -886,6 +886,8 @@ export default function ToDoPage() {
       setStatusFilter("Done");
     }
     if (params.get("add") === "1") setShowForm(true);
+    // A done to-do opened from an account's To-dos list: show the Done ones so its card is there.
+    if (params.get("status") === "Done") setStatusFilter("Done");
     const id = params.get("id");
     if (!id) return;
 
