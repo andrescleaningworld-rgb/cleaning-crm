@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { runResponseClock } from "@/lib/pg/complaint-response";
+import { runPromiseLateChecks } from "@/lib/pg/complaint-promise";
 
 export const maxDuration = 120;
 
@@ -14,7 +15,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
   try {
-    return NextResponse.json({ success: true, result: await runResponseClock(new URL(request.url).origin) });
+    const origin = new URL(request.url).origin;
+    const result = await runResponseClock(origin);
+    // A promised date that passed. Its own failure never stops the clock check.
+    const promises = await runPromiseLateChecks(origin).catch((error) => {
+      console.error("[cron complaint-clock] promised dates:", error instanceof Error ? error.message : error);
+      return null;
+    });
+    return NextResponse.json({ success: true, result, promises });
   } catch (error) {
     console.error("[cron complaint-clock]", error instanceof Error ? error.message : error);
     return NextResponse.json({ success: false, error: "The clock check did not run." }, { status: 500 });

@@ -18,6 +18,7 @@
 // Facts come from lib/pg/complaint-track.ts. Safe in the browser.
 
 import { businessDaysBetween, firstName, FLOW_RED_BUSINESS_DAYS, officeDay } from "@/lib/accountFlow";
+import { promisePassed, staffPromiseLine, type ComplaintPromise } from "@/lib/complaintPromise";
 import type { TrackerStep, TrackerView } from "@/app/components/pizza-tracker";
 
 export type ComplaintStep = "received" | "sent" | "team" | "review" | "fixed";
@@ -46,10 +47,17 @@ export type ComplaintStepFacts = {
   office: string;
   /** The account's team (sub) name, staff screens only ("" = "the team"). */
   team: string;
+  /** The date the team promised ("We're on it"), the newest one. */
+  promise?: ComplaintPromise | null;
 };
 
-/** A complaint's tracker: the shared view, plus when each of the 5 steps was reached. */
-export type ComplaintTrackView = TrackerView & { step: ComplaintStep; at: string[] };
+/**
+ * A complaint's tracker: the shared view, plus when each of the 5 steps was
+ * reached. While the team is on it with a promised date: that date, whether it
+ * passed, and the office's line. The customer's and team's views never carry
+ * who set it or "late".
+ */
+export type ComplaintTrackView = TrackerView & { step: ComplaintStep; at: string[]; promise?: ComplaintPromise | null; promiseLate?: boolean; promiseLine?: string };
 
 const lower = (value: unknown) => String(value ?? "").trim().toLowerCase();
 
@@ -64,12 +72,16 @@ export const isOfficeFixedStatus = (status: unknown) => /^(closed|resolved)/.tes
 export function complaintTrackView(f: ComplaintStepFacts, now = new Date()): ComplaintTrackView | null {
   if (isMergedStatus(f.status)) return null;
   const s = lower(f.status);
-  const index = isOfficeFixedStatus(s) ? 4 : isReviewStatus(s) ? 3 : f.teamAt || s.startsWith("in progress") ? 2 : f.sentAt ? 1 : 0;
+  const index = isOfficeFixedStatus(s) ? 4 : isReviewStatus(s) ? 3 : f.promise || f.teamAt || s.startsWith("in progress") ? 2 : f.sentAt ? 1 : 0;
   const step = COMPLAINT_STEPS[index].key;
   const at = [f.createdAt, f.sentAt, f.teamAt, index >= 3 ? f.reviewAt : "", index === 4 ? f.fixedAt : ""];
   // Stuck since the step was reached (or the latest earlier step we know of).
   const since = at.slice(0, index + 1).filter(Boolean).sort().pop() || f.createdAt;
-  const red = index < 4 && Boolean(since) && businessDaysBetween(officeDay(since), officeDay(now)) >= FLOW_RED_BUSINESS_DAYS;
+  // A promised date replaces the 2-business-day rule: on time is not red, past the date is.
+  const promise = index === 2 ? (f.promise ?? null) : null;
+  const promiseLate = promise ? promisePassed(promise, now) : false;
+  const red = promise ? promiseLate : index < 4 && Boolean(since) && businessDaysBetween(officeDay(since), officeDay(now)) >= FLOW_RED_BUSINESS_DAYS;
+  const promiseLine = promise ? staffPromiseLine(promise, promiseLate) : "";
   const office = firstName(f.office) ? `with ${firstName(f.office)}` : "with the office";
   const team = f.team.trim() ? `with ${f.team.trim()}` : "with the team";
   // Received: the office has to send it on. Sent / Team on it: the team. Ready to review: the office.
@@ -77,21 +89,24 @@ export function complaintTrackView(f: ComplaintStepFacts, now = new Date()): Com
   return {
     step,
     index,
-    now: index === 4 ? "Fixed" : `${COMPLAINT_STEPS[index].tracker} - ${withWho}`,
+    now: index === 4 ? "Fixed" : promiseLine || `${COMPLAINT_STEPS[index].tracker} - ${withWho}`,
     withWho,
     red,
     done: COMPLAINT_STEPS.slice(0, index).map((entry) => entry.key),
     at,
+    ...(promise ? { promise, promiseLate, promiseLine } : {}),
   };
 }
 
 /** The team's view (sub portal): steps 2-5, nobody named. */
 export const SUB_COMPLAINT_STEPS: TrackerStep[] = COMPLAINT_STEPS.slice(1);
 
-export function subTrackView(view: ComplaintTrackView): TrackerView {
+export function subTrackView(view: ComplaintTrackView): TrackerView & { promise: { dueDate: string; dueTime: string } | null } {
   const index = Math.max(0, view.index - 1);
   const words = ["Sent to you", "You are on it", "Office is reviewing", "Fixed"];
-  return { step: SUB_COMPLAINT_STEPS[index].key, index, now: words[index], withWho: "", red: false, done: SUB_COMPLAINT_STEPS.slice(0, index).map((s) => s.key), at: view.at.slice(1) };
+  // The date only: never who set it, and "late" is for the office.
+  const promise = view.promise ? { dueDate: view.promise.dueDate, dueTime: view.promise.dueTime } : null;
+  return { step: SUB_COMPLAINT_STEPS[index].key, index, now: words[index], withWho: "", red: false, done: SUB_COMPLAINT_STEPS.slice(0, index).map((s) => s.key), at: view.at.slice(1), promise };
 }
 
 /** The customer's 3 steps (Received → Team on it → Fixed). Words come from the portal, in the customer's language. */

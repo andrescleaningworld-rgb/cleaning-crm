@@ -15,6 +15,7 @@
 
 import { getSql } from "@/lib/db";
 import { complaintTrackView, type ComplaintTrackView } from "@/lib/complaintSteps";
+import { readPromise, type ComplaintPromise } from "@/lib/complaintPromise";
 
 /** The complaint columns the tracker needs (to_jsonb: columns from later migrations never break the read). */
 export const TRACK_COLUMNS = `id, btrim(complaint_id) AS complaint_id, legacy_key, sheet_row, status, created_at, assigned_to,
@@ -43,6 +44,8 @@ export type ComplaintTrack = {
   customerFix: { note: string; photos: string[]; at: string; editedAt: string } | null;
   /** Not on the customer's portal (and no customer email when closed): "Customer sees this" switched off. */
   hidden: boolean;
+  /** Every date the team promised, newest first (office only). */
+  promises: ComplaintPromise[];
 };
 
 const text = (value: unknown) => String(value ?? "").trim();
@@ -72,11 +75,11 @@ export async function complaintTracks(rows: TrackRow[], now = new Date()): Promi
   const [events, pinLog, log] = await Promise.all([
     quiet(
       sql.query(
-        `SELECT complaint_id, kind, channel, status, detail, photos, created_at FROM complaint_events
-         WHERE complaint_id = ANY($1::bigint[]) AND kind IN ('sub_notified', 'acknowledged', 'fixed', 'customer_fix', 'customer_visibility')
+        `SELECT complaint_id, kind, channel, status, detail, photos, by_name, created_at FROM complaint_events
+         WHERE complaint_id = ANY($1::bigint[]) AND kind IN ('sub_notified', 'acknowledged', 'fixed', 'customer_fix', 'customer_visibility', 'promise')
          ORDER BY created_at ASC, id ASC`,
         [ids]
-      ) as unknown as Promise<{ complaint_id: string | number; kind: string; channel: string; status: string; detail: string; photos: string; created_at: string | Date }[]>,
+      ) as unknown as Promise<{ complaint_id: string | number; kind: string; channel: string; status: string; detail: string; photos: string; by_name: string; created_at: string | Date }[]>,
       [],
       "events"
     ),
@@ -130,9 +133,16 @@ export async function complaintTracks(rows: TrackRow[], now = new Date()): Promi
     // The default: the customer sees it. The "Customer sees this" switch overrides it.
     let hidden = false;
     let lastFixEvent = "";
+    const promises: ComplaintPromise[] = [];
     for (const event of events.filter((e) => Number(e.complaint_id) === id)) {
       const at = isoOf(event.created_at);
-      if (event.kind === "sub_notified" && event.status === "sent") sentAt = earliest(sentAt, at);
+      if (event.kind === "promise") {
+        const promise = readPromise(event.detail, event.by_name, at);
+        if (promise) {
+          promises.unshift(promise);
+          teamAt = earliest(teamAt, at);
+        }
+      } else if (event.kind === "sub_notified" && event.status === "sent") sentAt = earliest(sentAt, at);
       else if (event.kind === "acknowledged" && /from the sub/i.test(event.detail)) teamAt = earliest(teamAt, at);
       else if (event.kind === "fixed") {
         lastFixEvent = latest(lastFixEvent, at);
@@ -152,10 +162,10 @@ export async function complaintTracks(rows: TrackRow[], now = new Date()): Promi
     if (/^(closed|resolved)/.test(status) && !status.startsWith("resolved by sub")) fixedAt = fixedAt || updated;
 
     const view = complaintTrackView(
-      { status: r.status, createdAt: isoOf(r.created_at), sentAt, teamAt, reviewAt, fixedAt, office: text(r.assigned_to), team: text(r.sub_at_filing) },
+      { status: r.status, createdAt: isoOf(r.created_at), sentAt, teamAt, reviewAt, fixedAt, office: text(r.assigned_to), team: text(r.sub_at_filing), promise: promises[0] ?? null },
       now
     );
-    out.set(id, { view, fixPhotos: [...new Set(fixPhotos)], customerFix, hidden });
+    out.set(id, { view, fixPhotos: [...new Set(fixPhotos)], customerFix, hidden, promises });
   }
   return out;
 }

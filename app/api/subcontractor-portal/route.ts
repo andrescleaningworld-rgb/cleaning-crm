@@ -6,6 +6,7 @@ import { subSessionOptions, type SubSessionData } from "@/lib/subSession";
 import { fetchAppsScript, AppsScriptFetchError } from "@/lib/appsScriptFetch";
 import { closeComplaint } from "@/lib/data/complaints";
 import { markFirstResponse } from "@/lib/pg/complaint-response";
+import { ComplaintPromiseError, setComplaintPromise } from "@/lib/pg/complaint-promise";
 import { addComplaintEvent, complaintRowId } from "@/lib/pg/complaint-events";
 import { needsFixProof, recordFix } from "@/lib/pg/complaint-fix";
 import { fixPhotoLinks } from "@/lib/complaintFixPhotos";
@@ -252,11 +253,27 @@ async function handleOnPostgres(
     return filesJson(answer({ message: "Got it." }));
   }
 
+  // "We're on it" / "Change date": when the team will have it done.
+  if (action === "setComplaintPromise") {
+    const mine = await ownComplaint((body.complaint as Record<string, unknown>) || {});
+    if (!mine) return refuse("This complaint is not on one of your accounts.", 403);
+    if (/^(closed|resolved|merged)/i.test(String(mine.status ?? "").trim())) return refuse("This complaint is already resolved or closed.", 409);
+    const rowId = await complaintRowId(String(mine.id ?? "").trim() || String(mine.rowNumber));
+    if (rowId === null) return refuse("Complaint not found.", 404);
+    try {
+      await setComplaintPromise({ rowId, dueDate: String(body.dueDate ?? ""), dueTime: String(body.dueTime ?? ""), reason: body.reason, reasonText: body.reasonText, by: name || email });
+      return filesJson(answer({ message: "Saved." }));
+    } catch (error) {
+      if (error instanceof ComplaintPromiseError) return filesJson({ success: false, code: error.code, error: "Not saved." }, { status: 400 });
+      throw error;
+    }
+  }
+
   return refuse(`Unknown subcontractor portal action: ${action}`, 400);
 }
 
 /** What the portal saves: Postgres only (see POST). */
-const SAVE_ACTIONS = new Set(["submitSubPortalIssue", "submitSupplyOrder", "resolveComplaintBySubcontractor", "acknowledgeComplaintBySubcontractor", "logSubcontractorActivity"]);
+const SAVE_ACTIONS = new Set(["submitSubPortalIssue", "submitSupplyOrder", "resolveComplaintBySubcontractor", "acknowledgeComplaintBySubcontractor", "setComplaintPromise", "logSubcontractorActivity"]);
 
 export async function POST(request: NextRequest) {
   try {

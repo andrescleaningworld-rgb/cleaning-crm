@@ -14,6 +14,7 @@ import ScheduleVisit from "./schedule-visit";
 import SubScheduleTab from "./sub-schedule-tab";
 import ScheduleCalendarTab from "./schedule-calendar-tab";
 import CrewChecklists from "./crew-checklists";
+import ComplaintPromiseBox, { type SubPromise } from "./complaint-promise";
 import PizzaTracker, { type TrackerView } from "../components/pizza-tracker";
 import { SUB_COMPLAINT_STEPS } from "@/lib/complaintSteps";
 
@@ -72,7 +73,7 @@ type Complaint = {
   /** The response clock: "" = nobody has answered it yet. */
   firstResponseAt?: string;
   /** Where it stands: Sent to team → Team on it → Ready to review → Fixed (lib/complaintSteps.ts subTrackView). */
-  track?: TrackerView | null;
+  track?: (TrackerView & { promise?: SubPromise | null }) | null;
 };
 
 /** An old Google Drive photo link -> the picture itself; other links unchanged. */
@@ -478,7 +479,6 @@ export default function SubcontractorPortalPage() {
   const [resolvingComplaintId, setResolvingComplaintId] = useState("");
   // "See details": one complaint, read only (what the customer reported, and the pictures).
   const [viewComplaint, setViewComplaint] = useState<Complaint | null>(null);
-  const [ackingComplaintId, setAckingComplaintId] = useState("");
   // "Mark Resolved by Sub": the after photos picked for each complaint.
   const [fixFiles, setFixFiles] = useState<Record<string, File[]>>({});
 
@@ -1298,30 +1298,6 @@ export default function SubcontractorPortalPage() {
     }
   }
 
-  // "Got it, I'm on it": the first answer to a complaint (stops the office's response clock).
-  async function handleAcknowledgeComplaint(complaint: Complaint) {
-    const complaintKey = getComplaintId(complaint);
-    setError("");
-    setSuccessMessage("");
-    setAckingComplaintId(complaintKey);
-    try {
-      const response = await fetch("/api/subcontractor-portal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "acknowledgeComplaintBySubcontractor", complaint: { id: complaint.id || complaint.complaintId || "", rowNumber: complaint.rowNumber || "" } }),
-      });
-      const data = (await response.json().catch(() => ({}))) as PortalResponse;
-      if (!response.ok || !data.success) throw new Error(data.error || data.message || "Not saved. Try again.");
-      const now = new Date().toISOString();
-      setComplaints((current) => current.map((item) => (getComplaintId(item) === complaintKey ? { ...item, firstResponseAt: now } : item)));
-      setSuccessMessage("Thanks. The office knows you are on it.");
-    } catch (ackError) {
-      setError(ackError instanceof Error ? ackError.message : "Not saved. Try again.");
-    } finally {
-      setAckingComplaintId("");
-    }
-  }
-
   async function handleResolveComplaint(complaint: Complaint) {
     if (!subcontractor) return;
 
@@ -1927,6 +1903,24 @@ export default function SubcontractorPortalPage() {
                           <PizzaTracker view={complaint.track} size="list" steps={SUB_COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" />
                         ) : null}
 
+                        {/* "We're on it": when it will be done, and Change date. */}
+                        {!isResolvedBySub ? (
+                          <ComplaintPromiseBox
+                            complaint={complaint}
+                            promise={complaint.track?.promise}
+                            lang={lang}
+                            onSaved={(promise) =>
+                              setComplaints((current) =>
+                                current.map((item) =>
+                                  getComplaintId(item) === complaintKey
+                                    ? { ...item, firstResponseAt: item.firstResponseAt || new Date().toISOString(), track: item.track ? { ...item.track, step: SUB_COMPLAINT_STEPS[1].key, index: 1, now: "You are on it", done: [SUB_COMPLAINT_STEPS[0].key], promise } : item.track }
+                                    : item
+                                )
+                              )
+                            }
+                          />
+                        ) : null}
+
                         <div className="ui-stat">
                           <p className="ui-muted">
                             Description
@@ -1945,18 +1939,6 @@ export default function SubcontractorPortalPage() {
                             ? `See details and ${complaint.photos.length} photo${complaint.photos.length === 1 ? "" : "s"}`
                             : "See details"}
                         </button>
-
-                        {/* Nobody has answered it yet: one tap tells the office "I saw it, I'm on it". */}
-                        {complaint.firstResponseAt === "" && !cleanLower(complaint.status).startsWith("resolved") ? (
-                          <button
-                            type="button"
-                            onClick={() => void handleAcknowledgeComplaint(complaint)}
-                            disabled={ackingComplaintId === complaintKey}
-                            className="ui-btn ui-btn-second w-full"
-                          >
-                            {ackingComplaintId === complaintKey ? "Saving…" : "✓ Got it, I'm on it"}
-                          </button>
-                        ) : null}
 
                         {getComplaintFollowUp(complaint) ? (
                           <p className="ui-muted">
