@@ -29,6 +29,8 @@ import ChecklistEstimateBuilder from "@/app/components/ChecklistEstimateBuilder"
 import AccountSupplies from "@/app/components/AccountSupplies";
 import CrewPeople from "@/app/components/CrewPeople";
 import CwNowSetup, { type SetupStep } from "@/app/components/CwNowSetup";
+import CwNowShift from "@/app/components/CwNowShift";
+import { checklistStatusWords } from "@/lib/cwNowHelp";
 import { whenShort, type CrewPeopleData } from "@/lib/crewLinkPeople";
 import { OrdersAndProblems } from "@/app/accounts/[id]/team-hub-tab";
 import CwNowPhotoChecklist from "@/app/components/CwNowPhotoChecklist";
@@ -69,7 +71,19 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
   const [reloadKey, setReloadKey] = useState(0);
   const reload = () => setReloadKey((key) => key + 1);
   const [people, setPeople] = useState<CrewPeopleData>({ ready: true, people: [], lastUsedAt: "" });
-  const [panel, setPanel] = useState<"" | "send" | "crew" | "edit">("");
+  const [panel, setPanel] = useState<"" | "send" | "crew" | "shift" | "edit">("");
+  // Scheduled cleanings since the last checklist, for the status line.
+  const [missedDays, setMissedDays] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/crew-link/shift?accountId=${encodeURIComponent(accountId)}&status=1`, { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { missedDays?: number | null }) => alive && setMissedDays(data.missedDays ?? null))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [accountId, reloadKey]);
   const [setupStep, setSetupStep] = useState<SetupStep | null>(startSetup ? 1 : null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [formatHelp, setFormatHelp] = useState(false);
@@ -446,9 +460,12 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
   const setUp = checklistLive || supplyOrdersEnabled || problemReportsEnabled;
   const usedText = people.lastUsedAt ? `Last used ${whenShort(people.lastUsedAt)} ✓` : setUp ? "Not used yet" : "";
   const peopleText = people.people.map((person) => `${person.name}${person.lastSentAt ? " ✓ sent" : ""}`).join(" · ");
+  const status = checklistLive ? checklistStatusWords({ crew: people.people.length, lastDoneText: people.lastUsedAt ? whenShort(people.lastUsedAt) : "", missedDays }) : null;
   const statusLine = !setUp
-    ? "Not set up"
-    : [peopleText || (people.ready ? "No crew list yet" : ""), usedText].filter(Boolean).join(" · ");
+    ? "No checklist yet"
+    : status
+      ? status.text
+      : [peopleText || (people.ready ? "No crew list yet" : ""), usedText].filter(Boolean).join(" · ");
 
   async function checklistIn() {
     const response = await fetch("/api/checklist-templates", {
@@ -462,7 +479,7 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
   }
 
   const bigButton = "flex min-h-[64px] w-full items-center justify-center gap-3 rounded-2xl px-4 text-xl font-black shadow-sm";
-  const panelButton = (key: "send" | "crew" | "edit", label: string, icon: string, main = false) => (
+  const panelButton = (key: "send" | "crew" | "shift" | "edit", label: string, icon: string, main = false) => (
     <button
       type="button"
       onClick={() => {
@@ -479,11 +496,11 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
   return (
     <div className="space-y-4">
       {/* The card, compact: one status line, one big button. */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3" data-cw-tour="account">
         <Image src="/logo-CW-single-phone-optimized.png" alt="Cleaning World" width={32} height={32} className="h-8 w-8 object-contain" />
         <div className="min-w-0">
           <h2 className="text-xl font-black text-slate-950">CW Now</h2>
-          <p className={`mt-0.5 text-base font-bold ${setUp ? "text-green-800" : "text-slate-500"}`}>{statusLine}</p>
+          <p className={`mt-0.5 text-base font-bold ${status?.warn ? "text-amber-700" : setUp ? "text-green-800" : "text-slate-500"}`} data-cw-status>{statusLine}</p>
         </div>
       </div>
 
@@ -505,14 +522,19 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
           onClose={() => setSetupStep(null)}
         />
       ) : !setUp ? (
-        <button type="button" onClick={() => setSetupStep(1)} className={`${bigButton} min-h-[72px] bg-green-600 text-white hover:bg-green-700`}>
-          <span className="text-2xl" aria-hidden="true">🚀</span> Set up CW Now
-        </button>
+        <div className="space-y-3 rounded-2xl border-2 border-dashed border-green-400 bg-green-50 p-5 text-center" data-cw-empty>
+          <p className="text-2xl font-black text-slate-900">No checklist yet</p>
+          <p className="text-lg font-semibold text-slate-600">Make one in 2 minutes</p>
+          <button type="button" onClick={() => setSetupStep(1)} className={`${bigButton} min-h-[72px] bg-green-600 text-white hover:bg-green-700`}>
+            <span className="text-2xl" aria-hidden="true">🚀</span> Make a checklist
+          </button>
+        </div>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {panelButton("send", "Send", "💬", true)}
             {panelButton("crew", "Crew list", "👥")}
+            {checklistLive ? panelButton("shift", "Shift", "⏰") : null}
             {checklistNeeded ? panelButton("edit", "Edit checklist", "✏️") : null}
           </div>
           {!checklistLive ? (
@@ -529,6 +551,8 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
               Add people to the crew list first
             </button>
           ) : null}
+
+          {panel === "shift" ? <CwNowShift accountId={accountId} /> : null}
 
           {panel === "crew" ? (
             <CrewPeople accountId={accountId} placeName={place} baseUrl={porterUrl} tabs={tabs} data={people} onChange={setPeople} mode="people" />
@@ -802,7 +826,8 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
       )}
 
       {/* Crew screen (Classic / Photo Checklist) and the Photo Checklist's Work reports. */}
-      {checklistLive ? <CwNowPhotoChecklist accountId={accountId} accountName={accountName} onScreenChange={setCrewScreen} /> : null}
+      {/* Hidden while the wizard is open: it has its own Normal / Photo step, and this reloads the saved choice after. */}
+      {checklistLive && !setupStep ? <CwNowPhotoChecklist accountId={accountId} accountName={accountName} onScreenChange={setCrewScreen} /> : null}
 
       {/* Everything else, out of the way. */}
       {porterCode || setUp ? (

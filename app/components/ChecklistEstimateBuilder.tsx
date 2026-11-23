@@ -13,7 +13,7 @@ import { BigButton, ErrorBox, Sheet } from "@/app/ui";
 import ChecklistSectionsEditor, { makeEmptySection } from "@/app/components/ChecklistSectionsEditor";
 import { MAX_TAB_NAME_LENGTH, cleanTabName, countTabItems, validateSections, type ChecklistSectionDef, type ChecklistTabDef } from "@/lib/checklistTemplate";
 
-type BuiltTab = { name: string; sections: ChecklistSectionDef[] };
+export type BuiltTab = { name: string; sections: ChecklistSectionDef[] };
 const CREW_SIZES = [1, 2, 3, 4] as const;
 
 export default function ChecklistEstimateBuilder({
@@ -21,6 +21,7 @@ export default function ChecklistEstimateBuilder({
   accountId,
   accountName,
   locationName,
+  startTabs = null,
   onClose,
   onSaved,
 }: {
@@ -28,12 +29,14 @@ export default function ChecklistEstimateBuilder({
   accountId: string;
   accountName: string;
   locationName: string;
+  /** Typed items or a template: opens right on the preview. Give the component a new key for each. */
+  startTabs?: BuiltTab[] | null;
   onClose: () => void;
   onSaved: (tabs: ChecklistTabDef[], firstTabId: number | null, message: string) => void;
 }) {
   const [scope, setScope] = useState("");
   const [crewSize, setCrewSize] = useState<number>(1);
-  const [tabs, setTabs] = useState<BuiltTab[] | null>(null);
+  const [tabs, setTabs] = useState<BuiltTab[] | null>(startTabs);
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -106,7 +109,7 @@ export default function ChecklistEstimateBuilder({
   return (
     <Sheet
       open={open}
-      title="Build from estimate"
+      title={startTabs ? "Check your checklist" : "Make checklist with AI"}
       text={tabs ? "Check each tab. Tap a line to change it, ✕ to delete it. Nothing is saved until Save." : undefined}
       onClose={onClose}
       closeLabel="Close"
@@ -134,7 +137,7 @@ export default function ChecklistEstimateBuilder({
         {!tabs ? (
           <>
             <label className="block">
-              <span className="text-lg font-black text-slate-900">Paste the scope of work from the estimate</span>
+              <span className="text-lg font-black text-slate-900">Type a few words, or paste the scope of work</span>
               <textarea
                 value={scope}
                 onChange={(event) => setScope(event.target.value)}

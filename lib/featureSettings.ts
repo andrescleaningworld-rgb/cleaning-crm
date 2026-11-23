@@ -55,6 +55,9 @@ export type ComplaintClockSetting = { yellowHours: number; redHours: number };
 /** Customer-facing (off until turned on): "We got it" / "It's fixed" emails and Received → Working on it → Fixed in the portal. */
 export type CustomerComplaintLoopSetting = { on: boolean };
 
+/** CW Now: how long after a shift ends a checklist may still come in before the "no checklist" pin. */
+export type CrewShiftsSetting = { missedHours: number };
+
 export type FeatureSettings = {
   subInsurancePortal: SubInsurancePortalSetting;
   atRisk: AtRiskSetting;
@@ -64,6 +67,7 @@ export type FeatureSettings = {
   visitTypes: VisitTypesSetting;
   complaintClock: ComplaintClockSetting;
   customerComplaintLoop: CustomerComplaintLoopSetting;
+  crewShifts: CrewShiftsSetting;
 };
 
 export type FeatureSettingKey = keyof FeatureSettings;
@@ -90,6 +94,7 @@ export const DEFAULT_FEATURE_SETTINGS: FeatureSettings = {
   complaintClock: { yellowHours: 2, redHours: 4 },
   // Customers see this: off until the owner turns it on in Settings.
   customerComplaintLoop: { on: false },
+  crewShifts: { missedHours: 2 },
 };
 
 export const FEATURE_SETTING_KEYS = Object.keys(DEFAULT_FEATURE_SETTINGS) as FeatureSettingKey[];

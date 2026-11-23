@@ -10,6 +10,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Card, Counts, EmptyState, ErrorBox, Screen, SkeletonList, StatusPill } from "@/app/ui";
+import { completionText, useChecklistCompletion } from "@/app/components/useChecklistCompletion";
 import styles from "./ranking.module.css";
 
 /** The lowest score that can win an incentive. */
@@ -89,6 +90,7 @@ function SubName({ row }: { row: Row }) {
 export default function SubCenterRanking() {
   const [lists, setLists] = useState<{ ranked: Ranked[]; tooSmall: Row[] } | null>(null);
   const [error, setError] = useState("");
+  const completion = useChecklistCompletion();
 
   const load = useCallback(async () => {
     setError("");
@@ -156,6 +158,7 @@ export default function SubCenterRanking() {
                       <p className="ui-card-text">
                         {placeWord(row.place, tied)} · {plural(row.accounts, "active account")} · {plural(row.openComplaints, "open complaint")}
                       </p>
+                      <p className="ui-card-text">📋 Checklists, last 30 days: {completionText(completion.get(row.id))}</p>
                       <div className="ui-actions-row" style={{ marginTop: 8 }}>
                         {row.wins ? (
                           <StatusPill kind="done">Incentive: in the top {INCENTIVE_PLACES}</StatusPill>
@@ -183,6 +186,7 @@ export default function SubCenterRanking() {
                       <p className="ui-card-text">
                         {plural(row.accounts, "active account")} · {plural(row.openComplaints, "open complaint")}
                       </p>
+                      <p className="ui-card-text">📋 Checklists, last 30 days: {completionText(completion.get(row.id))}</p>
                       <div className="ui-actions-row" style={{ marginTop: 8 }}>
                         <StatusPill kind="off">
                           Needs {INCENTIVE_MIN_ACCOUNTS - row.accounts} more account{INCENTIVE_MIN_ACCOUNTS - row.accounts === 1 ? "" : "s"}

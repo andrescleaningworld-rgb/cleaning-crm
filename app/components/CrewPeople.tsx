@@ -220,6 +220,11 @@ export default function CrewPeople({
                   {moreFor === person.id ? "Fewer ways to send" : "More ways to send"}
                 </button>
                 {moreFor === person.id ? (
+                  <a href={`mailto:?subject=${encodeURIComponent(`Cleaning World: ${placeName}`)}&body=${encodeURIComponent(messageOf(person))}`} onClick={() => sent(person, "copy")} className="flex min-h-[56px] w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 text-base font-black text-slate-800 ring-2 ring-slate-300">
+                    ✉️ Send by email
+                  </a>
+                ) : null}
+                {moreFor === person.id ? (
                   <CrewLinkShare
                     small
                     accountId={accountId}

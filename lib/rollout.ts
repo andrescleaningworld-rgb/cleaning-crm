@@ -12,6 +12,8 @@ export const ROLLOUT_SWITCHES = {
   CW_LINKS: "FEATURE_CW_NOW_LINKS",
   /** 4E: "Make task page with AI" on the task form, and that page on the sub's link, My to-dos and printouts. */
   AI_TASK_PAGE: "FEATURE_AI_TASK_PAGE",
+  /** CW Now: the short text each crew person gets at shift start. */
+  SHIFT_TEXTS: "FEATURE_SHIFT_TEXTS",
 } as const;
 
 export type RolloutSwitch = keyof typeof ROLLOUT_SWITCHES;

@@ -35,7 +35,7 @@ function firstVisible(selector: string): HTMLElement | null {
  * themselves; the "?" in the top bar shows them again. "Skip all" turns
  * every tip off (Settings -> Tips turns them back on).
  */
-export function Tips({ id, steps, ready = true }: { id: string; steps: TipStep[]; ready?: boolean }) {
+export function Tips({ id, steps, ready = true, skipOnlyThese = false }: { id: string; steps: TipStep[]; ready?: boolean; /** A guided tour: "Skip" closes this one and leaves the app's other tips on. */ skipOnlyThese?: boolean }) {
   // -1 = not showing.
   const [index, setIndex] = useState(-1);
   const [box, setBox] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
@@ -67,10 +67,14 @@ export function Tips({ id, steps, ready = true }: { id: string; steps: TipStep[]
 
   // The "?" in the top bar.
   useEffect(() => {
-    const show = () => setIndex(0);
+    // "Show me again" on one screen names its own tips; the "?" in the top bar names none.
+    const show = (event: Event) => {
+      const only = (event as CustomEvent<string | undefined>).detail;
+      if (!only || only === id) setIndex(0);
+    };
     window.addEventListener(SHOW_TIPS_EVENT, show);
     return () => window.removeEventListener(SHOW_TIPS_EVENT, show);
-  }, []);
+  }, [id]);
 
   const finish = useCallback(() => {
     setIndex(-1);
@@ -138,8 +142,8 @@ export function Tips({ id, steps, ready = true }: { id: string; steps: TipStep[]
           </button>
         </div>
         <div className="ui-tip-row ui-tip-skip">
-          <button type="button" className="ui-link" onClick={skipAll}>
-            Skip all tips
+          <button type="button" className="ui-link" onClick={skipOnlyThese ? finish : skipAll}>
+            {skipOnlyThese ? "Skip" : "Skip all tips"}
           </button>
         </div>
       </div>

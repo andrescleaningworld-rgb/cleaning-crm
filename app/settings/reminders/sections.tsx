@@ -142,6 +142,26 @@ function CheckinSection() {
   );
 }
 
+function CrewShiftsSection({ settings, canEdit, save }: SectionProps) {
+  const [hours, setHours] = useState(settings.crewShifts.missedHours);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- follow the saved value once it loads
+  useEffect(() => setHours(settings.crewShifts.missedHours), [settings.crewShifts.missedHours]);
+  return (
+    <Card title="📋 CW Now: missed checklist">
+      <div className="ui-stack">
+        <p className="ui-card-text">No checklist this many hours after the shift ends? The account manager gets a pin the next morning.</p>
+        <label className="ui-field">
+          <span className="ui-label">Hours after the shift ends</span>
+          <input className="ui-input" type="number" min={0} max={12} step={0.5} value={hours} disabled={!canEdit} onChange={(event) => setHours(Number(event.target.value))} />
+        </label>
+        <div className="ui-actions-row">
+          <BigButton disabled={!canEdit || !Number.isFinite(hours) || hours < 0 || hours > 12} onClick={() => void save("crewShifts", { missedHours: hours })}>Save</BigButton>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 function ComplaintClockSection({ settings, canEdit, save }: SectionProps) {
   const [t, setT] = useState<ComplaintClockSetting>(settings.complaintClock);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- follow the saved values once they load
@@ -195,4 +215,4 @@ function CustomerComplaintLoopSection({ settings, canEdit, save }: SectionProps)
   );
 }
 
-export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection, AtRiskSection, ComplaintClockSection, CustomerComplaintLoopSection, CheckinSection];
+export const SECTIONS: ((props: SectionProps) => ReactNode)[] = [InsuranceSection, AtRiskSection, CrewShiftsSection, ComplaintClockSection, CustomerComplaintLoopSection, CheckinSection];

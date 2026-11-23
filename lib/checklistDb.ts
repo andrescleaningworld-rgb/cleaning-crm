@@ -579,5 +579,12 @@ export async function saveTabsByName(input: {
     tabs = saved.tabs;
     firstTabId ??= tabId;
   }
+  // The blank starter tab goes once the real tabs are in, or the crew would see an empty one.
+  // Kept if someone on the crew list is assigned to it.
+  const starter = tabs.find((tab) => lower(tab.name) === lower(DEFAULT_TAB_NAME) && !input.tabs.some((entry) => lower(entry.name) === lower(tab.name)) && !tab.sections.some((section) => section.items.length > 0));
+  if (starter && tabs.length > 1) {
+    const assigned = await getSql()`SELECT 1 FROM crew_link_people WHERE account_id = ${accountId} AND tab_id = ${starter.id} AND deleted_at IS NULL LIMIT 1`;
+    if (assigned.length === 0) tabs = await deleteTab(accountId, starter.id);
+  }
   return { ok: true, template, tabs, firstTabId };
 }

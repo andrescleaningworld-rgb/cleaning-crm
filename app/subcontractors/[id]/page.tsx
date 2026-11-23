@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { completionText, useChecklistCompletion } from "@/app/components/useChecklistCompletion";
 import {
   BigButton,
   Card,
@@ -672,6 +673,7 @@ export default function SubcontractorDetailPage() {
 
   const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
   const pageId = decodeURIComponent(clean(rawId));
+  const checklistCompletion = useChecklistCompletion();
 
   const [subcontractors, setSubcontractors] = useState<Subcontractor[]>([]);
   const [accounts, setAccounts] = useState<AnyRow[]>([]);
@@ -940,6 +942,7 @@ export default function SubcontractorDetailPage() {
               <Detail label="Open Complaints" value={String(openComplaints.length)} />
               <Detail label="Avg Visit Condition" value={avgCondition} />
               <Detail label="Accounts Assigned" value={String(currentAccounts.length)} />
+              <Detail label="Checklists, last 30 days" value={completionText(checklistCompletion.get(pageId))} />
               <Detail label="Last Activity" value={lastReview} />
             </dl>
             {/* The rules in plain words (lib/googleSheets.ts computeSubcontractorScore, lib/complaintWeights.ts). Keep in step with them. */}
