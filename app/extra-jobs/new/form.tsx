@@ -32,7 +32,10 @@ import {
 import { ESTIMATE_ACCEPT, uploadEstimate } from "../estimates";
 import styles from "../extra-jobs.module.css";
 
-type State = "loading" | "off" | "missing" | "locked" | "failed" | "ready";
+type State = "loading" | "off" | "missing" | "locked" | "failed" | "ready" | "no-estimate" | "already-made";
+
+/** What a Markate estimate fills in (GET /api/markate?extraJob=<id>). */
+type MarkateFill = { id: string; estimateNumber: string; customerName: string; description: string; price: string; accountId: string; estimateUrl: string; extraJob: { id: string; number: string } | null };
 
 /** The Sub dropdown's value for "In-house (Cleaning World crew)". Never a real sub ID: it is saved as inHouse, not as a sub. */
 const IN_HOUSE_CHOICE = "__in_house__";
@@ -94,7 +97,7 @@ export type EmbeddedExtraJob = {
   onChange: (facts: { description: string; jobDate: string; inHouse: boolean }) => void;
 };
 
-export default function ExtraJobForm({ accountId: startAccountId = "", editId = "", from = "", returnTo = "", embedded }: { accountId?: string; editId?: string; from?: string; /** Opened from an account page: Save goes back there (lib/returnTo.ts). */ returnTo?: string; embedded?: EmbeddedExtraJob }) {
+export default function ExtraJobForm({ accountId: startAccountId = "", editId = "", from = "", returnTo = "", markateId = "", embedded }: { accountId?: string; editId?: string; from?: string; /** Opened from the Markate checked popup: filled from this estimate. */ markateId?: string; /** Opened from an account page: Save goes back there (lib/returnTo.ts). */ returnTo?: string; embedded?: EmbeddedExtraJob }) {
   const router = useRouter();
   const embeddedName = embedded?.accountName ?? "";
   const isEmbedded = Boolean(embedded);
@@ -120,11 +123,12 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
   const [estimateCount, setEstimateCount] = useState(0);
   const [estimateFiles, setEstimateFiles] = useState<File[]>([]);
   const estimateInput = useRef<HTMLInputElement>(null);
+  const [markate, setMarkate] = useState<MarkateFill | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   // Unsaved typing is kept on this computer until Save (app/components/form-draft.tsx). Estimate files are not kept.
   const draft = useFormDraft(
-    editId ? `edit-extra-job:${editId}` : `new-extra-job:${startAccountId}`,
+    editId ? `edit-extra-job:${editId}` : markateId ? `new-extra-job:markate:${markateId}` : `new-extra-job:${startAccountId}`,
     { accountId, source, description, jobDate, price, subId, subPay, crewNames, soldBy, commissionType, recurringStartDate, recurringEndDate, woNumber, estimateNumber },
     {
       // Inside the CW Now form nothing is kept: an old draft must never fill in a price by itself.
@@ -205,12 +209,30 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
         // Coming from an account page: its usual sub is picked already.
         const start = loaded.accounts.find((option) => option.id === startAccountId);
         if (start && loaded.subs.some((sub) => sub.id === start.subId)) setSubId(start.subId);
+
+        // From a Markate estimate: filled in for a person to check and save. The account only when exactly one matches.
+        if (markateId) {
+          const fillResponse = await fetch(`/api/markate?extraJob=${encodeURIComponent(markateId)}`, { cache: "no-store" });
+          const fillBody = (await fillResponse.json().catch(() => ({}))) as { success?: boolean; prefill?: MarkateFill };
+          if (!fillResponse.ok || fillBody.success !== true || !fillBody.prefill) return setState("no-estimate");
+          const fill = fillBody.prefill;
+          setMarkate(fill);
+          if (fill.extraJob) return setState("already-made");
+          setDescription(fill.description);
+          setPrice(fill.price);
+          setEstimateNumber(fill.estimateNumber);
+          const matched = loaded.accounts.find((option) => option.id === fill.accountId);
+          if (matched) {
+            setAccountId(matched.id);
+            if (loaded.subs.some((sub) => sub.id === matched.subId)) setSubId(matched.subId);
+          }
+        }
       }
       setChoices(loaded);
       setState("ready");
     };
     load().catch(() => setState("failed"));
-  }, [startAccountId, editId, isEmbedded, embeddedName]);
+  }, [startAccountId, editId, isEmbedded, embeddedName, markateId]);
 
   const account = choices?.accounts.find((option) => option.id === accountId) ?? null;
   const inHouse = subId === IN_HOUSE_CHOICE;
@@ -258,7 +280,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
       const response = await fetch("/api/extra-jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editId ? { action: "update", id: editId, ...input } : { action: "create", ...input }),
+        body: JSON.stringify(editId ? { action: "update", id: editId, ...input } : { action: "create", ...input, ...(markate ? { markateId: markate.id } : {}) }),
       });
       const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string; job?: ExtraJob; emailed?: boolean };
       if (!response.ok || body.success !== true || !body.job) throw new Error(body.error ?? "That did not save. Try again.");
@@ -337,12 +359,38 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
             </BigButton>
           }
         />
+      ) : state === "no-estimate" ? (
+        <EmptyState title="This estimate cannot be made into an extra job" text="It may have changed since the Markate check." />
+      ) : state === "already-made" ? (
+        <EmptyState
+          title={`Extra job made: ${markate?.extraJob?.number ?? ""}`}
+          text="This estimate already has an extra job."
+          action={
+            <BigButton kind="second" href={`/extra-jobs/${encodeURIComponent(markate?.extraJob?.id ?? "")}`}>
+              Open the job
+            </BigButton>
+          }
+        />
       ) : state === "failed" || !choices ? (
         <ErrorBox title="The form did not load." onRetry={() => window.location.reload()} />
       ) : (
         <div className="ui-stack">
           {editId || isEmbedded ? null : <p className={styles.rule}>{EXTRA_JOBS_RULE}</p>}
           {isEmbedded ? null : <DraftNotice draft={draft} />}
+          {markate ? (
+            <p className={styles.rule}>
+              Filled from Markate {markate.estimateNumber} ({markate.customerName}). The price is before tax. Check it and save.
+              {markate.estimateUrl ? (
+                <>
+                  {" "}
+                  <a href={markate.estimateUrl} target="_blank" rel="noopener noreferrer">
+                    See the estimate
+                  </a>
+                </>
+              ) : null}
+              {account ? "" : " Pick the account below."}
+            </p>
+          ) : null}
 
           {isEmbedded ? null : account ? (
             <div className={styles.picked}>
@@ -449,7 +497,7 @@ export default function ExtraJobForm({ accountId: startAccountId = "", editId = 
 
           {estimatesOn ? (
             <div className={styles.two}>
-              <Field label="Estimate #" hint="From Markate. Office only." optional maxLength={60} autoComplete="off" value={estimateNumber} disabled={saving} onChange={(event) => setEstimateNumber(event.target.value)} />
+              <Field label="Estimate #" hint="From Markate. Office only." optional maxLength={60} autoComplete="off" value={estimateNumber} disabled={saving || Boolean(markate)} onChange={(event) => setEstimateNumber(event.target.value)} />
               <div className="ui-field">
                 <span className="ui-label">Approved estimate</span>
                 <span className="ui-hint">

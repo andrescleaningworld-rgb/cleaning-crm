@@ -9,7 +9,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, Sheet, friendlyDate, showToast } from "@/app/ui";
 
-type Line = { number: string; customerName: string };
+type Line = {
+  number: string;
+  customerName: string;
+  estimateId?: string;
+  canMakeExtraJob?: boolean;
+  extraJob?: { id: string; number: string } | null;
+  existingAccounts?: { id: string; name: string }[];
+};
 type SkipLine = Line & { reason: string };
 type Summary = { added: Line[]; skipped: SkipLine[]; error: string; partial: boolean; lastCheckedAt: string };
 type Status = { connected: boolean; checking: boolean; lastCheckedAt: string; lastError: string };
@@ -17,6 +24,36 @@ type Status = { connected: boolean; checking: boolean; lastCheckedAt: string; la
 /** "Today at 9:42 AM". */
 const whenText = (value: string) => `${friendlyDate(value)} at ${new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 const lineText = (line: Line) => [line.customerName, line.number].filter(Boolean).join(" · ") || "An estimate";
+
+/** The next step on a line: extra job made, Make extra job, or the existing account. */
+function NextStep({ line, fromBoard }: { line: Line; fromBoard: boolean }) {
+  return (
+    <>
+      {line.extraJob ? (
+        <div>
+          <a href={`/extra-jobs/${encodeURIComponent(line.extraJob.id)}`}>Extra job made → {line.extraJob.number}</a>
+        </div>
+      ) : line.canMakeExtraJob && line.estimateId ? (
+        <div style={{ marginTop: 4 }}>
+          <a className="ui-btn ui-btn-second" href={`/extra-jobs/new?markate=${encodeURIComponent(line.estimateId)}${fromBoard ? "&from=board" : ""}`}>
+            Make extra job
+          </a>
+        </div>
+      ) : null}
+      {line.existingAccounts?.length ? (
+        <div>
+          Existing account: possible price/frequency change.{" "}
+          {line.existingAccounts.map((account, index) => (
+            <span key={account.id}>
+              {index > 0 ? ", " : ""}
+              <a href={`/accounts/${encodeURIComponent(account.id)}`}>{line.existingAccounts?.length === 1 ? "Open account" : `${account.name} (${account.id})`}</a>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
 
 export default function MarkateCheckNow({
   lookupId = "",
@@ -105,7 +142,10 @@ export default function MarkateCheckNow({
             {summary.added.length > 0 ? (
               <ul style={{ margin: 0, paddingLeft: 18 }}>
                 {summary.added.map((line, index) => (
-                  <li key={`${line.number}-${index}`}>{lineText(line)}</li>
+                  <li key={`${line.number}-${index}`}>
+                    {lineText(line)}
+                    <NextStep line={line} fromBoard={compact} />
+                  </li>
                 ))}
               </ul>
             ) : null}
@@ -118,6 +158,7 @@ export default function MarkateCheckNow({
                 {summary.skipped.map((line, index) => (
                   <li key={`${line.number}-${index}`}>
                     <strong>{lineText(line)}</strong>: {line.reason}
+                    <NextStep line={line} fromBoard={compact} />
                   </li>
                 ))}
               </ul>

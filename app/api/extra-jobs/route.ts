@@ -6,7 +6,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { sendExtraJobCancelled, sendExtraJobDone, sendExtraJobSetUp } from "@/lib/extraJobEmail";
 import { SOURCES, checkNewExtraJob, isDay, type ExtraJob, type ExtraJobSource, type NewExtraJob } from "@/lib/extraJobs";
+import { extraJobPrefill, markateReady, type ExtraJobPrefill } from "@/lib/pg/markate";
 import {
+  addJobEstimate,
   cancelExtraJob,
   createExtraJob,
   estimatesReady,
@@ -121,7 +123,25 @@ export async function POST(request: NextRequest) {
         if (changed === "locked") return refuse("This job is done or cancelled, so it cannot be changed.", 409);
         return NextResponse.json({ success: true, job: changed });
       }
-      const job = await createExtraJob(input, by);
+      // Made from a Markate estimate: never twice, and its number is the one on file.
+      let fromMarkate: ExtraJobPrefill | null = null;
+      const markateId = clean(body.markateId);
+      if (markateId) {
+        fromMarkate = (await markateReady()) ? await extraJobPrefill(markateId) : null;
+        if (!fromMarkate) return refuse("That estimate cannot be made into an extra job.", 404);
+        if (fromMarkate.extraJob) return refuse(`Extra job ${fromMarkate.extraJob.number} was already made from this estimate.`, 409);
+        input.estimateNumber = fromMarkate.estimateNumber;
+      }
+      let job = await createExtraJob(input, by);
+      // The estimate's Markate link goes on the job. If it fails, the job is still saved.
+      if (fromMarkate?.estimateUrl) {
+        try {
+          await addJobEstimate(job.id, { url: fromMarkate.estimateUrl, fileName: `Markate estimate ${fromMarkate.estimateNumber}`, contentType: "text/html" }, by);
+          job = (await getExtraJob(job.id)) ?? job;
+        } catch (error) {
+          console.error("[extra-jobs] Markate link:", error instanceof Error ? error.message : error);
+        }
+      }
       const emailed = await tellOffice(job, "setup", origin);
       return NextResponse.json({ success: true, job: { ...job, setupEmailed: emailed }, emailed });
     }

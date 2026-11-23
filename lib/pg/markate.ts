@@ -20,6 +20,7 @@
 // migration 055 fixed the ones brought in before.
 
 import { getSql } from "@/lib/db";
+import { estimatesReady } from "@/lib/pg/extra-jobs";
 import { sendHtmlEmail } from "@/lib/email";
 import { MARKATE_EMAIL_TO, estimateEmailHtml, estimateEmailSubject, estimateEmailText, type EstimateEmailData } from "@/lib/markateEstimateEmail";
 import {
@@ -37,6 +38,7 @@ import {
   text,
   type MarkateCustomer,
   type MarkateEstimate,
+  type MarkateItem,
   type MarkateTokens,
 } from "@/lib/markate";
 
@@ -295,13 +297,25 @@ export type CheckResult = {
   /** Another check was already running, so this one did nothing. */
   busy: boolean;
   /** The ones this check brought in (Check Markate now: "X new account(s) added"). */
-  addedList: { number: string; customerName: string }[];
+  addedList: ({ number: string; customerName: string; markateId: string } & Partial<EstimateFollowUp>)[];
   /**
    * Check Markate now's "Skipped" list, in plain words: the ones this check
    * left out, and the recent ones in the pages read that were decided before
    * (left out, skipped, or already in the CRM). Never the Oct 22 baseline.
    */
-  skipped: { number: string; customerName: string; reason: string }[];
+  skipped: ({ number: string; customerName: string; reason: string; markateId: string } & Partial<EstimateFollowUp>)[];
+};
+
+/** What the office can do next with a line in the Markate checked popup. */
+export type EstimateFollowUp = {
+  /** Our row id (markate_estimates.id). */
+  estimateId: string;
+  /** One-time estimate with no extra job yet: shows "Make extra job". */
+  canMakeExtraJob: boolean;
+  /** The job already made from this estimate (cancelled jobs do not count). */
+  extraJob: { id: string; number: string } | null;
+  /** Has a monthly item and the customer is already an account: a possible price or frequency change. */
+  existingAccounts: { id: string; name: string }[];
 };
 
 /** At most this many left-out estimates are listed under "Show details". */
@@ -446,6 +460,7 @@ export async function checkForEstimates(options: { lookupId?: string } = {}): Pr
   if (!(await claimCheck())) return { ...emptyResult(), busy: true };
   try {
     const result = await importEstimates(options.lookupId?.trim() ?? "");
+    await addFollowUps(result);
     await sendEstimateEmails();
     return result;
   } finally {
@@ -498,13 +513,13 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
     // Brought in and already in the CRM are always listed; left out ones are counted by reason, and listed up to a limit.
     let leftOutShown = 0;
     const numberOf = (estimate: MarkateEstimate) => text(estimate.custom_number) || `id ${text(estimate.id)}`;
-    const skip = (number: string, customerName: string, reason: string) => {
-      if (result.skipped.length < MAX_SKIPPED_SHOWN) result.skipped.push({ number, customerName, reason });
+    const skip = (number: string, customerName: string, reason: string, markateId: string) => {
+      if (result.skipped.length < MAX_SKIPPED_SHOWN) result.skipped.push({ number, customerName, reason, markateId });
     };
     const see = (estimate: MarkateEstimate, customerName: string, customerType: string, outcome: SeenEstimate["outcome"], why: string, kind = "") => {
       const number = numberOf(estimate);
-      if (outcome === "brought in") result.addedList.push({ number, customerName });
-      else skip(number, customerName, outcome === "left out" ? plainLeftOut(kind) : "Already in the CRM");
+      if (outcome === "brought in") result.addedList.push({ number, customerName, markateId: text(estimate.id) });
+      else skip(number, customerName, outcome === "left out" ? plainLeftOut(kind) : "Already in the CRM", text(estimate.id));
       if (outcome === "left out") {
         result.leftOut[kind] = (result.leftOut[kind] ?? 0) + 1;
         if (leftOutShown >= MAX_LEFT_OUT_SHOWN) return;
@@ -606,7 +621,7 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
         });
       }
       const recent = known.found_at ? new Date(known.found_at).getTime() >= recentFrom : false;
-      if (recent && !known.outcome_by.startsWith("Accepted before Oct 22")) skip(known.estimate_number || numberOf(estimate), known.customer_name || nameOf(estimate), plainEarlier(known));
+      if (recent && !known.outcome_by.startsWith("Accepted before Oct 22")) skip(known.estimate_number || numberOf(estimate), known.customer_name || nameOf(estimate), plainEarlier(known), known.markate_estimate_id);
     };
 
     const getPage = async (page: number) => {
@@ -736,6 +751,116 @@ async function importEstimates(lookupId: string): Promise<CheckResult> {
     await sql`UPDATE markate_connection SET last_checked_at = ${startedAt.toISOString()}, last_check_error = ${result.error} WHERE id = 1`;
   }
   return result;
+}
+
+/* ---------- what to do next with an estimate ---------- */
+
+/** How a one-time estimate is remembered by the check. */
+const LEFT_OUT_ONE_TIME = "Left out: no recurring item";
+
+/** Open accounts by exact name (any case, extra spaces ignored). Same accounts the Extra Job form can pick. */
+async function accountsNamed(names: string[]): Promise<Map<string, { id: string; name: string }[]>> {
+  const keys = [...new Set(names.map(itemKey).filter(Boolean))];
+  const found = new Map<string, { id: string; name: string }[]>();
+  if (keys.length === 0) return found;
+  const rows = (await getSql().query(
+    `SELECT a.id, btrim(a.account_name) AS name FROM accounts a
+     WHERE a.id IS NOT NULL AND a.status_key <> 'cancelled' AND (to_jsonb(a)->>'deleted_at') IS NULL
+       AND lower(regexp_replace(btrim(a.account_name), '[[:space:]]+', ' ', 'g')) = ANY($1::text[])
+     ORDER BY a.id`,
+    [keys]
+  )) as { id: string; name: string }[];
+  for (const row of rows) found.set(itemKey(row.name), [...(found.get(itemKey(row.name)) ?? []), row]);
+  return found;
+}
+
+/** Extra jobs by their Estimate #, leaving out cancelled ones so a cancelled job can be made again. */
+async function jobsForEstimates(numbers: string[]): Promise<Map<string, { id: string; number: string }>> {
+  const keys = [...new Set(numbers.map(itemKey).filter(Boolean))];
+  const found = new Map<string, { id: string; number: string }>();
+  if (keys.length === 0 || !(await estimatesReady())) return found;
+  const rows = (await getSql().query(
+    `SELECT id::text, job_number, estimate_number FROM extra_jobs
+     WHERE status <> 'cancelled' AND lower(btrim(estimate_number)) = ANY($1::text[]) ORDER BY id`,
+    [keys]
+  )) as { id: string; job_number: string; estimate_number: string }[];
+  for (const row of rows) if (!found.has(itemKey(row.estimate_number))) found.set(itemKey(row.estimate_number), { id: row.id, number: row.job_number });
+  return found;
+}
+
+/** Adds the next step to each popup line. A failure here leaves the plain list: it never fails the check. */
+async function addFollowUps(result: CheckResult): Promise<void> {
+  const lines = [...result.addedList, ...result.skipped].filter((line) => line.markateId);
+  if (lines.length === 0) return;
+  try {
+    const rows = (await getSql()`
+      SELECT id::text, markate_estimate_id, outcome, outcome_by, estimate_number, customer_name, raw->'items' AS items
+      FROM markate_estimates WHERE markate_estimate_id = ANY(${lines.map((line) => line.markateId)})
+    `) as { id: string; markate_estimate_id: string; outcome: string; outcome_by: string; estimate_number: string; customer_name: string; items: unknown }[];
+    const recurringNames = new Set((await listRecurringItems()).map((item) => itemKey(item.name)));
+    const [accounts, jobs] = await Promise.all([accountsNamed(rows.map((row) => row.customer_name)), jobsForEstimates(rows.map((row) => row.estimate_number))]);
+    const byId = new Map(rows.map((row) => [row.markate_estimate_id, row]));
+    for (const line of lines) {
+      const row = byId.get(line.markateId);
+      if (!row) continue;
+      const recurring = Boolean(recurringMatch(Array.isArray(row.items) ? (row.items as MarkateItem[]) : [], recurringNames));
+      const extraJob = jobs.get(itemKey(row.estimate_number)) ?? null;
+      line.estimateId = row.id;
+      line.extraJob = extraJob;
+      // "started" is left out: that account was made from this very estimate.
+      line.existingAccounts = recurring && row.outcome !== "started" ? (accounts.get(itemKey(row.customer_name)) ?? []) : [];
+      line.canMakeExtraJob = row.outcome === "skipped" && row.outcome_by === LEFT_OUT_ONE_TIME && !recurring && Boolean(row.estimate_number) && !extraJob;
+    }
+  } catch (error) {
+    console.error("[markate follow-ups]", error instanceof Error ? error.message : error);
+  }
+}
+
+export type ExtraJobPrefill = {
+  id: string;
+  estimateNumber: string;
+  customerName: string;
+  description: string;
+  /** Before tax. */
+  price: string;
+  /** Filled only when exactly one account has this name. */
+  accountId: string;
+  estimateUrl: string;
+  extraJob: { id: string; number: string } | null;
+};
+
+/** What the Extra Job form is filled with. null unless this is a one-time estimate the check left out. */
+export async function extraJobPrefill(id: string): Promise<ExtraJobPrefill | null> {
+  if (!/^\d+$/.test(id)) return null;
+  const rows = (await getSql()`
+    SELECT id::text, estimate_number, customer_name, total::text, url_public, raw->'items' AS items
+    FROM markate_estimates WHERE id = ${id}::bigint AND outcome = 'skipped' AND outcome_by = ${LEFT_OUT_ONE_TIME}
+  `) as { id: string; estimate_number: string; customer_name: string; total: string; url_public: string; items: unknown }[];
+  const row = rows[0];
+  if (!row) return null;
+  const items = Array.isArray(row.items) ? (row.items as MarkateItem[]) : [];
+  const description = items
+    .map((item) => {
+      const name = text(item.name);
+      const detail = text(item.description);
+      return name && detail && name !== detail ? `${name}: ${detail}` : name || detail;
+    })
+    .filter(Boolean)
+    .join("\n")
+    .slice(0, 2000);
+  const [accounts, jobs] = await Promise.all([accountsNamed([row.customer_name]), jobsForEstimates([row.estimate_number])]);
+  const matches = accounts.get(itemKey(row.customer_name)) ?? [];
+  const price = Number(row.total) || 0;
+  return {
+    id: row.id,
+    estimateNumber: row.estimate_number,
+    customerName: row.customer_name,
+    description,
+    price: price > 0 ? String(price) : "",
+    accountId: matches.length === 1 ? matches[0].id : "",
+    estimateUrl: row.url_public,
+    extraJob: jobs.get(itemKey(row.estimate_number)) ?? null,
+  };
 }
 
 /* ---------- the email to crm@ ---------- */
@@ -908,6 +1033,8 @@ export type WaitingEstimate = {
   matchedItem: string;
   matchedWhy: string;
   urlPublic: string;
+  /** The customer is already an account: a possible price or frequency change, not a new account. */
+  existingAccounts: { id: string; name: string }[];
 };
 
 type EstimateRow = {
@@ -931,7 +1058,9 @@ export async function listWaiting(): Promise<WaitingEstimate[]> {
     SELECT id::text, estimate_number, customer_name, total::text, estimate_date, url_public, matched_item, matched_why, found_at
     FROM markate_estimates WHERE outcome = 'waiting' ORDER BY found_at DESC, id DESC
   `) as EstimateRow[];
+  const accounts = await accountsNamed(rows.map((row) => row.customer_name));
   return rows.map((row) => ({
+    existingAccounts: accounts.get(itemKey(row.customer_name)) ?? [],
     id: row.id,
     estimateNumber: row.estimate_number,
     customerName: row.customer_name,

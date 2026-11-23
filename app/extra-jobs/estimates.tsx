@@ -42,11 +42,13 @@ export function EstimateList({ estimates }: { estimates: ExtraJobEstimate[] }) {
     <ul className={styles.estimates}>
       {estimates.map((estimate, index) => {
         const pdf = isPdfEstimate(estimate);
+        // A Markate estimate is a link to its page, not a stored file.
+        const link = /html/i.test(estimate.contentType);
         return (
           <li key={estimate.id} className={styles.estimate}>
             <a className={styles.estimateThumb} href={estimate.url} target="_blank" rel="noreferrer" aria-label={`View estimate ${index + 1}`}>
-              {pdf ? (
-                <span className={styles.estimatePdf}>PDF</span>
+              {pdf || link ? (
+                <span className={styles.estimatePdf}>{link ? "Link" : "PDF"}</span>
               ) : (
                 // Blob photos are shown as they are; next/image is not set up for that host.
                 // eslint-disable-next-line @next/next/no-img-element

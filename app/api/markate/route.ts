@@ -4,6 +4,7 @@
 // GET  ?list=1          the waiting estimates ("From Markate" in Accounts Center -> New accounts)
 // GET  ?count=1         how many are waiting (the New accounts tab badge)
 // GET  ?estimate=<id>   what New Accepted Account is filled with
+// GET  ?extraJob=<id>   what the Extra Job form is filled with (a one-time estimate)
 // GET  ?settings=1      owner: the connection and the recurring items list
 // POST { action: "skip", id }                 off the list and the board
 // POST { action: "started", id, accountId }   New Accepted Account was saved from this estimate
@@ -20,6 +21,7 @@ import {
   checkForEstimates,
   disconnect,
   estimatePrefill,
+  extraJobPrefill,
   listRecurringItems,
   listWaiting,
   markStarted,
@@ -47,6 +49,12 @@ export async function GET(request: NextRequest) {
     if (estimate) {
       const prefill = await estimatePrefill(estimate);
       if (!prefill) return refuse("That Markate estimate was not found.", 404);
+      return NextResponse.json({ success: true, ready: true, prefill }, noStore);
+    }
+    const forExtraJob = clean(params.get("extraJob"));
+    if (forExtraJob) {
+      const prefill = await extraJobPrefill(forExtraJob);
+      if (!prefill) return refuse("That estimate cannot be made into an extra job.", 404);
       return NextResponse.json({ success: true, ready: true, prefill }, noStore);
     }
     if (params.get("settings") === "1") {

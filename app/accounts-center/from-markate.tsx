@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, ErrorBox, showToast } from "@/app/ui";
 
-type Waiting = { id: string; estimateNumber: string; customerName: string; total: number; date: string; matchedItem: string; matchedWhy: string; urlPublic: string };
+type Waiting = { id: string; estimateNumber: string; customerName: string; total: number; date: string; matchedItem: string; matchedWhy: string; urlPublic: string; existingAccounts?: { id: string; name: string }[] };
 
 /** Tells the Accounts Center tab badge to count again. */
 export const MARKATE_CHANGED = "cw:markate-changed";
@@ -94,10 +94,26 @@ export default function FromMarkate({ reloadKey }: { reloadKey: number }) {
                 </a>
               </span>
             ) : null}
+            {estimate.existingAccounts?.length ? (
+              <span className="ui-acct-line ui-strong">Existing account: possible price/frequency change</span>
+            ) : null}
             <span className="ui-actions-row" style={{ marginTop: 8 }}>
-              <BigButton href={`/accounts/new?markate=${encodeURIComponent(estimate.id)}`} disabled={busy !== ""}>
-                Start new account
-              </BigButton>
+              {estimate.existingAccounts?.length ? (
+                <>
+                  {estimate.existingAccounts.map((account) => (
+                    <BigButton key={account.id} href={`/accounts/${encodeURIComponent(account.id)}`} disabled={busy !== ""}>
+                      {estimate.existingAccounts?.length === 1 ? "Open account" : `Open ${account.name} (${account.id})`}
+                    </BigButton>
+                  ))}
+                  <BigButton kind="second" href={`/accounts/new?markate=${encodeURIComponent(estimate.id)}`} disabled={busy !== ""}>
+                    It&apos;s a new location
+                  </BigButton>
+                </>
+              ) : (
+                <BigButton href={`/accounts/new?markate=${encodeURIComponent(estimate.id)}`} disabled={busy !== ""}>
+                  Start new account
+                </BigButton>
+              )}
               <BigButton kind="second" busy={busy === estimate.id} busyLabel="Skipping…" disabled={busy !== ""} onClick={() => void skip(estimate)}>
                 Skip
               </BigButton>
