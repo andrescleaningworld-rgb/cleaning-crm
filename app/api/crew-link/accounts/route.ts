@@ -20,7 +20,7 @@ import { crewSummaryByAccount } from "@/lib/pg/crew-link-people";
 import { STOPPED_AFTER_MISSED_DAYS, type CrewUsage } from "@/lib/crewLinkPeople";
 
 /** Days looked back for missed service days. */
-const LOOK_BACK_DAYS = 21;
+const LOOK_BACK_DAYS = 30;
 
 /** Mon–Fri between two office days (after `from`, before `to`): the fallback when an account has no schedule. */
 function weekdaysBetween(from: string, to: string): number {
@@ -56,11 +56,14 @@ export async function GET() {
     const tabsBy = new Map(tabs.map((t) => [t.account_id as string, t]));
     const lastBy = new Map(lastSubmissions.map((t) => [t.account_id as string, t.last_at]));
     const scheduledDays = new Map<string, string[]>();
+    // The plain status counts regular cleanings only, the same as the account's card (lib/pg/crew-shifts.ts).
+    const regularDays = new Map<string, Set<string>>();
     for (const cleaning of calendar?.cleanings ?? []) {
       if (cleaning.status === "extra" || cleaning.day >= today) continue;
       const list = scheduledDays.get(cleaning.accountId) ?? [];
       list.push(cleaning.day);
       scheduledDays.set(cleaning.accountId, list);
+      if (!cleaning.unscheduled) regularDays.set(cleaning.accountId, (regularDays.get(cleaning.accountId) ?? new Set<string>()).add(cleaning.day));
     }
 
     return NextResponse.json({
@@ -86,6 +89,14 @@ export async function GET() {
           usage = missedDays >= STOPPED_AFTER_MISSED_DAYS ? "stopped" : "inUse";
         }
 
+        // A checklist sent before 6 AM counts for the night before. Null = nothing to count from.
+        const regular = regularDays.get(a.accountId);
+        let checklistMissedDays: number | null = null;
+        if (lastSubmittedAt && regular) {
+          const lastNight = officeDay(new Date(Date.parse(lastSubmittedAt) - 6 * 3_600_000).toISOString());
+          checklistMissedDays = [...regular].filter((day) => day > lastNight).length;
+        }
+
         return {
           accountId: a.accountId,
           accountName: a.accountName,
@@ -100,6 +111,8 @@ export async function GET() {
           lastSubmittedAt,
           usage,
           missedDays,
+          checklistLive: a.checklistNeeded && itemCount > 0,
+          checklistMissedDays,
           crewCount: people?.people ?? 0,
           lastSentAt: people?.lastSentAt ?? "",
         };

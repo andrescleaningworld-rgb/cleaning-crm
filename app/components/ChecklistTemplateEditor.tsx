@@ -30,6 +30,7 @@ import AccountSupplies from "@/app/components/AccountSupplies";
 import CrewPeople from "@/app/components/CrewPeople";
 import CwNowSetup, { type SetupStep } from "@/app/components/CwNowSetup";
 import CwNowShift from "@/app/components/CwNowShift";
+import Link from "next/link";
 import { checklistStatusWords } from "@/lib/cwNowHelp";
 import { whenShort, type CrewPeopleData } from "@/lib/crewLinkPeople";
 import { OrdersAndProblems } from "@/app/accounts/[id]/team-hub-tab";
@@ -74,11 +75,17 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
   const [panel, setPanel] = useState<"" | "send" | "crew" | "shift" | "edit">("");
   // Scheduled cleanings since the last checklist, for the status line.
   const [missedDays, setMissedDays] = useState<number | null>(null);
+  // false = not on the cleaning schedule, so no shift texts or missed-checklist pins.
+  const [hasSchedule, setHasSchedule] = useState<boolean | null>(null);
   useEffect(() => {
     let alive = true;
     fetch(`/api/crew-link/shift?accountId=${encodeURIComponent(accountId)}&status=1`, { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { missedDays?: number | null }) => alive && setMissedDays(data.missedDays ?? null))
+      .then((data: { missedDays?: number | null; hasSchedule?: boolean | null }) => {
+        if (!alive) return;
+        setMissedDays(data.missedDays ?? null);
+        setHasSchedule(data.hasSchedule ?? null);
+      })
       .catch(() => undefined);
     return () => {
       alive = false;
@@ -506,6 +513,15 @@ export default function ChecklistTemplateEditor({ accountId, accountName, startS
 
       {error ? <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p> : null}
       {savedMessage ? <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm font-semibold text-green-800">{savedMessage}</p> : null}
+
+      {hasSchedule === false && (setupStep || checklistLive) ? (
+        <div className="space-y-2 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4" role="status" data-cw-no-schedule>
+          <p className="text-lg font-black text-amber-900">⚠ Add a cleaning schedule so shift texts and missed-checklist alerts work</p>
+          <Link href={`/accounts/${encodeURIComponent(accountId)}?onboarding=1`} className="inline-flex min-h-[48px] items-center rounded-xl bg-amber-600 px-4 text-base font-black text-white hover:bg-amber-700">
+            Add schedule
+          </Link>
+        </div>
+      ) : null}
 
       {setupStep ? (
         <CwNowSetup

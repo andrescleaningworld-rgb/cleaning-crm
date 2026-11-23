@@ -196,6 +196,12 @@ export async function missedSinceLastChecklist(accountId: string, today = office
   return new Set(days.filter((cleaning) => cleaning.day > last).map((cleaning) => cleaning.day)).size;
 }
 
+/** Is this account on the cleaning schedule (30 days back or ahead)? */
+export async function hasCleaningSchedule(accountId: string, today = officeDay()): Promise<boolean> {
+  const { cleanings } = await listCleanings(addDays(today, -30), addDays(today, 30));
+  return cleanings.some((cleaning) => cleaning.accountId === accountId && cleaning.status !== "extra" && !cleaning.unscheduled);
+}
+
 /* ---------- checklist completion ---------- */
 
 export type SubCompletion = { subId: string; subName: string; percent: number; done: number; expected: number; accounts: number };

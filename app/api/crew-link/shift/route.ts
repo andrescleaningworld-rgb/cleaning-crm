@@ -11,7 +11,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAdminIdentity } from "@/lib/adminSession";
 import { listActiveTabs } from "@/lib/checklistDb";
 import { checklistLibraryReady, listLibrary, saveToLibrary } from "@/lib/pg/checklist-library";
-import { checklistCompletion, crewShiftsReady, getShift, missedSinceLastChecklist, saveShift } from "@/lib/pg/crew-shifts";
+import { checklistCompletion, crewShiftsReady, getShift, hasCleaningSchedule, missedSinceLastChecklist, saveShift } from "@/lib/pg/crew-shifts";
 import { rolloutOn } from "@/lib/rollout";
 
 const noStore = { headers: { "Cache-Control": "no-store" } };
@@ -26,8 +26,10 @@ export async function GET(request: NextRequest) {
     if (params.get("view") === "completion") return NextResponse.json({ success: true, subs: await checklistCompletion() }, noStore);
     const accountId = clean(params.get("accountId"));
     if (!accountId) return refuse("accountId is required.");
-    const missedDays = params.get("status") === "1" ? await missedSinceLastChecklist(accountId).catch(() => null) : null;
-    return NextResponse.json({ success: true, ready: await crewShiftsReady(), shift: await getShift(accountId), textsOn: rolloutOn("SHIFT_TEXTS"), missedDays }, noStore);
+    const wantStatus = params.get("status") === "1";
+    // A calendar that fails to load gives null: no warning, never a wrong one.
+    const [missedDays, hasSchedule] = wantStatus ? await Promise.all([missedSinceLastChecklist(accountId).catch(() => null), hasCleaningSchedule(accountId).catch(() => null)]) : [null, null];
+    return NextResponse.json({ success: true, ready: await crewShiftsReady(), shift: await getShift(accountId), textsOn: rolloutOn("SHIFT_TEXTS"), missedDays, hasSchedule }, noStore);
   } catch (error) {
     console.error("[crew-link/shift GET]", error instanceof Error ? error.message : error);
     return refuse("It did not load.", 500);

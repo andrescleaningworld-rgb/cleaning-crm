@@ -15,6 +15,7 @@ import ChecklistTemplateEditor from "@/app/components/ChecklistTemplateEditor";
 import AccountHistory from "@/app/components/AccountHistory";
 import AccountLink from "@/app/components/AccountLink";
 import { CREW_USAGE, whenShort, type CrewUsage } from "@/lib/crewLinkPeople";
+import { checklistStatusWords } from "@/lib/cwNowHelp";
 
 type CrewLinkAccount = {
   accountId: string;
@@ -30,6 +31,8 @@ type CrewLinkAccount = {
   lastSubmittedAt: string | null;
   usage: CrewUsage;
   missedDays: number;
+  checklistLive: boolean;
+  checklistMissedDays: number | null;
   crewCount: number;
   lastSentAt: string;
 };
@@ -41,6 +44,8 @@ const isActive = (a: CrewLinkAccount) => a.status.trim().toLowerCase() === "acti
 /** The line under the status: when it was last used or sent, and the crew. */
 function detailLine(a: CrewLinkAccount): string {
   if (a.usage === "notSetUp") return "";
+  // The plain status line already says the crew and when it was last done.
+  if (a.checklistLive) return a.lastSentAt ? `Sent ${whenShort(a.lastSentAt)}` : "";
   const parts = [
     a.lastSubmittedAt ? `Last used ${whenShort(a.lastSubmittedAt)}` : "",
     a.usage === "stopped" && a.missedDays ? `${a.missedDays} service days with no checklist` : "",
@@ -204,6 +209,7 @@ export default function CrewLinkHomePage() {
           {shown.map((a) => {
             const usage = CREW_USAGE[a.usage];
             const detail = detailLine(a);
+            const plain = a.checklistLive ? checklistStatusWords({ crew: a.crewCount, lastDoneText: a.lastSubmittedAt ? whenShort(a.lastSubmittedAt) : "", missedDays: a.checklistMissedDays }) : null;
             return (
               <div key={a.accountId} className="ui-card flex flex-col gap-2">
                 <button type="button" onClick={() => open(a, false)} className="ui-stack flex-1 text-left">
@@ -213,6 +219,7 @@ export default function CrewLinkHomePage() {
                   <p className="ui-strong">{a.accountName || a.accountId}</p>
                   {a.address ? <p className="ui-muted">{a.address}</p> : null}
                   {a.manager ? <p className="ui-muted">Manager: {a.manager}</p> : null}
+                  {plain ? <p className={`text-base font-bold ${plain.warn ? "text-amber-700" : "text-green-800"}`} data-cw-row-status>{plain.text}</p> : null}
                   {detail ? <p className="ui-muted">{detail}</p> : null}
                   {!isActive(a) ? <p className="ui-muted">{a.status || "No status"}</p> : null}
                 </button>
