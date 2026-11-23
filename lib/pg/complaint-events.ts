@@ -6,7 +6,7 @@
 
 import { getSql } from "@/lib/db";
 
-export type ComplaintEventKind = "sub_notified" | "customer_added" | "merged_into" | "merged_from" | "response_alert" | "acknowledged" | "fixed" | "customer_emailed" | "customer_fix" | "customer_visibility" | "review_notified";
+export type ComplaintEventKind = "sub_notified" | "customer_added" | "merged_into" | "merged_from" | "response_alert" | "acknowledged" | "fixed" | "customer_emailed" | "customer_fix" | "customer_visibility" | "review_notified" | "promise" | "promise_late";
 
 export type ComplaintEvent = {
   id: number;

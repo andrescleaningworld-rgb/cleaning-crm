@@ -201,6 +201,8 @@ export type PortalMyRequest = {
   complaintNumber?: string;
   /** Its tracker, the customer's 3 steps (lib/complaintSteps.ts customerTrackView): Received → Team on it → Fixed. Words are added on the page. */
   track?: TrackerView;
+  /** "Our team is on it, expected by …". Only the date: never who set it, and gone once it passes. */
+  expectedBy?: { dueDate: string; dueTime: string };
   /** How it was fixed: only once the office closed it. Never names the team. */
   fix?: PortalComplaintFix;
 };
@@ -309,6 +311,8 @@ export async function getMyRequests(accountId: string): Promise<PortalMyRequest[
         state: track.index === 2 ? "done" : track.index === 0 ? "received" : "working",
         complaintNumber: key,
         track,
+        // The date the team promised, while it still stands. Once it passes it just is not shown: never "late".
+        ...(facts.view?.promise && !facts.view.promiseLate ? { expectedBy: { dueDate: facts.view.promise.dueDate, dueTime: facts.view.promise.dueTime } } : {}),
         ...(fix ? { fix } : {}),
       };
     });

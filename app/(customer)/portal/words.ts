@@ -171,6 +171,7 @@ const en = {
   trackSteps: ["Received", "Team on it", "Fixed"] as [string, string, string],
   trackShort: ["Received", "Team on it", "Fixed"] as [string, string, string],
   trackLabel: "Where your problem stands",
+  expectedBy: (when: string) => `Our team is on it — expected by ${when}`,
   complaintNumber: (n: string) => `Complaint ${n}`,
   // A fixed problem: how the team fixed it. Never the word "sub".
   fixTitle: "How we fixed it",
@@ -362,6 +363,7 @@ const es: PortalWords = {
   trackSteps: ["Recibido", "Nuestro equipo está trabajando", "Arreglado"],
   trackShort: ["Recibido", "Equipo trabajando", "Arreglado"],
   trackLabel: "Cómo va su problema",
+  expectedBy: (when: string) => `Nuestro equipo está trabajando — listo para ${when}`,
   complaintNumber: (n: string) => `Queja ${n}`,
   fixTitle: "Cómo lo arreglamos",
   fixedOn: (when: string) => `Arreglado ${when}`,

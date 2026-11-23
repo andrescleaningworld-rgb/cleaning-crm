@@ -26,7 +26,7 @@ export default async function PortalMyRequestsPage() {
             <li key={r.key}>
               <Card title={words.kinds[r.kind] ?? r.kind} right={<PortalStatus state={r.state} problem={Boolean(r.complaintNumber)} track={r.track} />}>
                 {r.summary ? <p>{r.summary}</p> : null}
-                {r.track ? <ComplaintTracker track={r.track} /> : null}
+                {r.track ? <ComplaintTracker track={r.track} expectedBy={r.expectedBy} /> : null}
                 {r.fix ? <ComplaintFix fix={r.fix} /> : null}
                 <p className="ui-muted">
                   {r.date}

@@ -25,7 +25,7 @@ export async function GET(request: NextRequest, context: { params: Promise<{ id:
     const rowId = await complaintRowId(key).catch(() => null);
     const track = rowId === null ? null : await complaintTrackById(rowId).catch(() => null);
     return NextResponse.json(
-      { success: true, ...detail, mergeTargets: mergeInto, track: track?.view ?? null, hiddenFromCustomer: Boolean(track?.hidden), customerFix: track?.customerFix ?? null },
+      { success: true, ...detail, mergeTargets: mergeInto, track: track?.view ?? null, hiddenFromCustomer: Boolean(track?.hidden), customerFix: track?.customerFix ?? null, promiseHistory: track?.promises ?? [] },
       noStore
     );
   } catch (error) {

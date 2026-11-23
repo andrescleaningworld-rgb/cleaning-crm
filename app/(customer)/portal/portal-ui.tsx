@@ -11,6 +11,7 @@ import { PORTAL_LANG_COOKIE, PORTAL_WORDS, type PortalLang, type PortalWords } f
 import type { PortalComplaintFix } from "@/lib/pg/portal-home";
 import PizzaTracker, { type TrackerView } from "@/app/components/pizza-tracker";
 import { customerSteps } from "@/lib/complaintSteps";
+import { promiseWhen } from "@/lib/complaintPromise";
 
 const LangContext = createContext<PortalLang>("en");
 
@@ -199,7 +200,7 @@ export function ComplaintFix({ fix }: { fix: PortalComplaintFix }) {
  * a thick bar, then the 3 steps one per line, with when each was reached.
  * Received → Team on it → Fixed. Never a name, never red.
  */
-export function ComplaintTracker({ track }: { track: TrackerView }) {
+export function ComplaintTracker({ track, expectedBy }: { track: TrackerView; expectedBy?: { dueDate: string; dueTime: string } }) {
   const words = usePortalWords();
   const lang = usePortalLang();
   const view = { ...track, now: words.trackSteps[track.index] ?? "" };
@@ -207,6 +208,7 @@ export function ComplaintTracker({ track }: { track: TrackerView }) {
     <div className="ui-portal-track" role="group" aria-label={`${words.trackLabel}: ${view.now}`}>
       <PizzaTracker view={view} size="pin" steps={customerSteps(words.trackSteps)} label={words.trackLabel} finish={words.trackSteps[2]} />
       <PizzaTracker view={view} size="list" steps={customerSteps(words.trackSteps)} label={words.trackLabel} finish={words.trackSteps[2]} formatWhen={(iso) => trackTime(iso, lang)} />
+      {expectedBy ? <p className="ui-strong">{words.expectedBy(promiseWhen(expectedBy.dueDate, expectedBy.dueTime, lang))}</p> : null}
     </div>
   );
 }

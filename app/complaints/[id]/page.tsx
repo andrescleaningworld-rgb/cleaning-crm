@@ -30,6 +30,7 @@ import NotifySubPicker from "../../components/notify-sub-picker";
 import SendToCwNow from "../../components/send-to-cw-now";
 import { Switch } from "@/app/settings/reminders/sections";
 import { COMPLAINT_STEPS, isReviewStatus, type ComplaintTrackView } from "@/lib/complaintSteps";
+import { promiseHistoryLine, type ComplaintPromise } from "@/lib/complaintPromise";
 
 type Complaint = {
   rowNumber?: number | string;
@@ -95,6 +96,8 @@ type DetailResponse = {
   fixes?: Addition[];
   /** The 5-step tracker (lib/complaintSteps.ts); null for a merged complaint. */
   track?: ComplaintTrackView | null;
+  /** Every date the team promised, newest first. */
+  promiseHistory?: ComplaintPromise[];
   /** "Customer sees this" is off: not on the customer's portal, no customer email on close. */
   hiddenFromCustomer?: boolean;
   /** What the customer was sent on "Close & send to customer" (latest). */
@@ -251,6 +254,7 @@ export default function ComplaintDetailPage() {
   const [fixes, setFixes] = useState<Addition[]>([]);
   // The tracker, "Hide from customer", and the photos the office hides on "Close & send to customer".
   const [track, setTrack] = useState<ComplaintTrackView | null>(null);
+  const [promiseHistory, setPromiseHistory] = useState<ComplaintPromise[]>([]);
   const [hiddenFromCustomer, setHiddenFromCustomer] = useState(false);
   const [customerFix, setCustomerFix] = useState<DetailResponse["customerFix"]>(null);
   const [hiddenPhotos, setHiddenPhotos] = useState<Set<string>>(new Set());
@@ -310,6 +314,7 @@ export default function ComplaintDetailPage() {
       setMergeTargets(Array.isArray(data.mergeTargets) ? data.mergeTargets : []);
       setFixes(Array.isArray(data.fixes) ? data.fixes : []);
       setTrack(data.track ?? null);
+      setPromiseHistory(Array.isArray(data.promiseHistory) ? data.promiseHistory : []);
       setHiddenFromCustomer(data.hiddenFromCustomer === true);
       setCustomerFix(data.customerFix ?? null);
       // Ready to review: the team's note, prefilled for the customer (no team name).
@@ -667,6 +672,15 @@ export default function ComplaintDetailPage() {
             {track ? (
               <div style={{ marginTop: 12 }}>
                 <PizzaTracker view={track} size="list" steps={COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" formatWhen={formatWhen} />
+                {track.promiseLine ? <p className={track.promiseLate ? "ui-field-error" : "ui-strong"} data-promise-line>{track.promiseLine}</p> : null}
+                {promiseHistory.length > 0 ? (
+                  <details>
+                    <summary className="ui-link">Promised date history ({promiseHistory.length})</summary>
+                    {promiseHistory.map((entry) => (
+                      <p key={entry.at} className="ui-muted">{promiseHistoryLine(entry)}</p>
+                    ))}
+                  </details>
+                ) : null}
               </div>
             ) : null}
             {/* Still waiting for a first answer: one tap says "we are on it" (stops the clock). */}

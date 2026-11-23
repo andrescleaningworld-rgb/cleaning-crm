@@ -526,6 +526,7 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
 
             {/* A complaint: its 5 steps, and who it waits on now. */}
             {open.complaintTrack ? <PizzaTracker view={open.complaintTrack} size="list" steps={COMPLAINT_STEPS} label="Complaint steps" finish="Fixed" /> : null}
+            {open.complaintTrack?.promiseLine ? <p className={open.complaintTrack.promiseLate ? "ui-field-error" : "ui-strong"} data-promise-line>{open.complaintTrack.promiseLine}</p> : null}
 
             {/* A new account in the 8-step flow: where it is, who has it, and why it is stuck. */}
             {open.flow ? (
