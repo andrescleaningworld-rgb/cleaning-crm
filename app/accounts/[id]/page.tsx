@@ -1408,8 +1408,8 @@ export default function AccountDetailPage() {
               </div>
             ) : null}
 
-            {/* The six things people do most, one tap each. */}
-            <div className="ui-acttiles account-detail-print-hide">
+            {/* The five things people do most, one tap each. */}
+            <div className="ui-acttiles ui-acttiles-five account-detail-print-hide">
               <Tile
                 icon="call"
                 label="Call contact"
@@ -1419,7 +1419,6 @@ export default function AccountDetailPage() {
                 disabled={!hasContactPhone}
                 data-tip="call"
               />
-              <Tile icon="todo" label="Add to-do" onClick={() => setAskToDoFor(true)} />
               <Tile icon="problem" label="Log problem" href={accountComplaintLink} />
               <Tile icon="visit" label="Log visit" href={`/visits/new?accountId=${accountIdForUrl}&account=${accountNameForUrl}&${backToAccount}`} />
               <Tile icon="money" label="+ Extra job" href={`/extra-jobs/new?accountId=${accountIdForUrl}&${backToAccount}`} />
@@ -1427,7 +1426,7 @@ export default function AccountDetailPage() {
             </div>
 
             {/* Visits, updates, extra jobs, complaints, supply orders, photos, to-dos and sales of this account, with how many. */}
-            <AccountEverything accountId={thisAccountId} accountName={accountName} reloadKey={todosChanged} />
+            <AccountEverything accountId={thisAccountId} accountName={accountName} reloadKey={todosChanged} onAddToDo={() => setAskToDoFor(true)} />
 
             <Sheet open={askToDoFor} title="Who is it for?" text={accountName} onClose={() => setAskToDoFor(false)}>
               <div className="ui-stack">

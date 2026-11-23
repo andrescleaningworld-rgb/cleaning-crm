@@ -3279,6 +3279,14 @@ main.cw-page-card {
   text-decoration: none;
 }
 
+/* The same look when it is a button ("+ Add to-do") instead of a link. */
+button.ui-counttile-new {
+  background: transparent;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
 .ui-counttile-new:hover {
   background: var(--ui-green-soft);
 }
@@ -3463,6 +3471,24 @@ a.ui-stat {
 @media (min-width: 800px) {
   .ui-acttiles-one {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Account page: five quick actions with no empty cell. Phone: 2, 2, then one
+   full width. Wide: three across, then two wider ones. */
+.ui-acttiles-five > :last-child {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 800px) {
+  .ui-acttiles-five {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+  .ui-acttiles-five > * {
+    grid-column: span 2;
+  }
+  .ui-acttiles-five > :nth-child(n + 4) {
+    grid-column: span 3;
   }
 }
 

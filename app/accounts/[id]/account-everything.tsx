@@ -30,7 +30,7 @@ const TILES: { kind: Kind; label: string; icon: TileIcon; path: string; extra?: 
   { kind: "sales", label: "Sales", icon: "status", path: "/sales", extra: "&view=list" },
 ];
 
-export default function AccountEverything({ accountId, accountName, reloadKey = 0 }: { accountId: string; accountName: string; /** Changes when a to-do was added here. */ reloadKey?: number }) {
+export default function AccountEverything({ accountId, accountName, reloadKey = 0, onAddToDo }: { accountId: string; accountName: string; /** Changes when a to-do was added here. */ reloadKey?: number; /** "+ Add to-do" under the To-dos tile: the "Who is it for?" chooser. */ onAddToDo: () => void }) {
   const [summary, setSummary] = useState<Summary | null>(null);
 
   useEffect(() => {
@@ -88,6 +88,11 @@ export default function AccountEverything({ accountId, accountName, reloadKey = 
                 <Link href={`/account-updates?${query}&add=1&returnTo=${encodeURIComponent(`/accounts/${encodeURIComponent(accountId)}`)}`} className="ui-counttile-new">
                   + New update
                 </Link>
+              ) : null}
+              {tile.kind === "todos" ? (
+                <button type="button" className="ui-counttile-new" onClick={onAddToDo}>
+                  + Add to-do
+                </button>
               ) : null}
             </div>
           );
