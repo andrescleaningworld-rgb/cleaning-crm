@@ -5,6 +5,7 @@ import OneSignalInit from "./components/OneSignalInit";
 import CWHeader from "./components/CWHeader";
 import { NavHistoryTracker } from "./components/BackButton";
 import VersionCheckBanner from "./components/VersionCheckBanner";
+import IdleLogout from "./components/IdleLogout";
 import { ToastRegion } from "./ui/toast";
 import DateInputs from "./components/DateInputs";
 import "./globals.css";
@@ -52,6 +53,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <ServiceWorkerRegister />
         <OneSignalInit />
         <NavHistoryTracker />
+        <IdleLogout />
 
         <div className="cw-app-shell">
           <div className="cw-app-container">
