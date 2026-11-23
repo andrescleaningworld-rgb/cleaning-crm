@@ -30,6 +30,7 @@ import {
   shareTask,
   staffFinishTask,
   staffTask,
+  taskPreviewFacts,
   type NewTaskFile,
 } from "@/lib/pg/cw-now-tasks";
 
@@ -42,6 +43,13 @@ export async function GET(request: NextRequest) {
     if (!(await getAdminIdentity(request))) return refuse("Log in first.", 401);
     if (!(await cwNowTasksReady())) return NextResponse.json({ success: true, ready: false }, noStore);
     const params = request.nextUrl.searchParams;
+    // The office's preview: what the sub's phone view shows around the task.
+    if (params.get("view") === "preview") {
+      const accountId = clean(params.get("accountId"));
+      if (!accountId) return refuse("Which account?");
+      const identity = await getAdminIdentity(request);
+      return NextResponse.json({ success: true, ready: true, ...(await taskPreviewFacts({ accountId, byStaffId: clean(identity?.staffId), jobId: clean(params.get("jobId")) })) }, noStore);
+    }
     if (params.get("view") === "form") {
       const accountId = clean(params.get("accountId"));
       if (accountId) {
@@ -54,14 +62,14 @@ export async function GET(request: NextRequest) {
       if (!(await cwNowLinksOn())) return NextResponse.json({ success: true, ready: true, on: false }, noStore);
       const facts = await jobForTask(clean(params.get("id")));
       if (!facts) return refuse("That extra job was not found.", 404);
-      return NextResponse.json({ success: true, ready: true, on: true, ...facts }, noStore);
+      return NextResponse.json({ success: true, ready: true, on: true, aiPageOn: await aiTaskPageOn(), ...facts }, noStore);
     }
     // "Send to team's CW Now" on a complaint: what its form needs.
     if (params.get("view") === "complaint") {
       if (!(await cwNowLinksOn())) return NextResponse.json({ success: true, ready: true, on: false }, noStore);
       const facts = await complaintForTask(clean(params.get("key")));
       if (!facts) return refuse("That complaint was not found.", 404);
-      return NextResponse.json({ success: true, ready: true, on: true, ...facts, subs: await listTaskSubs() }, noStore);
+      return NextResponse.json({ success: true, ready: true, on: true, aiPageOn: await aiTaskPageOn(), ...facts, subs: await listTaskSubs() }, noStore);
     }
     // The "Sub to-dos" view, the office calendar and the printouts.
     if (params.get("view") === "list") {
@@ -133,7 +141,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "fromJob") {
-      const id = await sendJobToCwNow({ jobId: clean(body.jobId), dueTime: clean(body.dueTime), urgent: body.urgent === true, photosRequired: body.photosRequired === true, by, byStaffId });
+      const id = await sendJobToCwNow({ jobId: clean(body.jobId), dueTime: clean(body.dueTime), noDueDate: body.noDueDate === true, taskPage: body.taskPage, urgent: body.urgent === true, photosRequired: body.photosRequired === true, by, byStaffId });
       after(() => deliverNewTask(id, origin));
       return NextResponse.json({ success: true, id }, noStore);
     }
@@ -149,6 +157,7 @@ export async function POST(request: NextRequest) {
         urgent: body.urgent === true,
         by,
         byStaffId,
+        taskPage: body.taskPage,
       });
       after(() => deliverNewTask(id, origin));
       return NextResponse.json({ success: true, id }, noStore);

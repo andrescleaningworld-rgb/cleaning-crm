@@ -106,8 +106,11 @@ export function cleanTaskTime(value: unknown): string {
   return `${match[1].padStart(2, "0")}:${match[2]}`;
 }
 
-/** "Mon, Nov 24, 10:30 AM" in the reader's language. The date and time are office time, shown as written. */
+const NO_DUE_DATE: Record<CrewLang, string> = { en: "No due date", es: "Sin fecha", pt: "Sem prazo" };
+
+/** "Mon, Nov 24, 10:30 AM" in the reader's language, or "No due date". The date and time are office time, shown as written. */
 export function taskDueText(dueDate: string, dueTime: string, lang: CrewLang): string {
+  if (!dueDate) return NO_DUE_DATE[lang];
   const time = cleanTaskTime(dueTime);
   const at = new Date(`${dueDate}T${time || "12:00"}:00Z`);
   if (Number.isNaN(at.getTime())) return dueDate;
@@ -204,16 +207,17 @@ const TEXT_WORDS: Record<CrewLang, Record<TaskTextKind, string> & { due: string;
 export function taskSmsText(kind: TaskTextKind, lang: CrewLang, accountName: string, dueDate: string, dueTime: string, url: string, inPortal = false): string {
   const words = TEXT_WORDS[lang];
   const last = url || (inPortal ? words.inPortal : kind === "new" ? words.linkComing : words.useLink);
-  return plainLetters(`Cleaning World - ${words[kind]}\n${accountName}\n${words.due}: ${taskDueText(dueDate, dueTime, lang)}\n${last}`);
+  const dueLine = dueDate ? `${words.due}: ${taskDueText(dueDate, dueTime, lang)}\n` : "";
+  return plainLetters(`Cleaning World - ${words[kind]}\n${accountName}\n${dueLine}${last}`);
 }
 
 /** The message for Share (WhatsApp, Text, Copy, Email), always with the link. */
 export function taskShareMessage(lang: CrewLang, name: string, accountName: string, dueDate: string, dueTime: string, url: string): string {
   const who = name.trim().split(/\s+/)[0] ?? "";
-  const due = taskDueText(dueDate, dueTime, lang);
-  if (lang === "es") return `Hola${who ? ` ${who}` : ""}, somos Cleaning World. Tienes una tarea en ${accountName}. Fecha: ${due}. Ábrela aquí y toca Listo: ${url}`;
-  if (lang === "pt") return `Olá${who ? ` ${who}` : ""}, aqui é a Cleaning World. Você tem uma tarefa em ${accountName}. Prazo: ${due}. Abra aqui e toque em Feito: ${url}`;
-  return `Hi${who ? ` ${who}` : ""}, this is Cleaning World. You have a task at ${accountName}. Due: ${due}. Open it here and tap Done: ${url}`;
+  const due = (word: string) => (dueDate ? ` ${word}: ${taskDueText(dueDate, dueTime, lang)}.` : "");
+  if (lang === "es") return `Hola${who ? ` ${who}` : ""}, somos Cleaning World. Tienes una tarea en ${accountName}.${due("Fecha")} Ábrela aquí y toca Listo: ${url}`;
+  if (lang === "pt") return `Olá${who ? ` ${who}` : ""}, aqui é a Cleaning World. Você tem uma tarefa em ${accountName}.${due("Prazo")} Abra aqui e toque em Feito: ${url}`;
+  return `Hi${who ? ` ${who}` : ""}, this is Cleaning World. You have a task at ${accountName}.${due("Due")} Open it here and tap Done: ${url}`;
 }
 
 export const TASK_EMAIL_SUBJECT: Record<CrewLang, (accountName: string) => string> = {
@@ -280,6 +284,8 @@ export function officeToday(now = new Date()): string {
 
 export function taskDueState(dueDate: string, status: CwNowStatus, today = officeToday()): TaskDueState {
   if (status === "done") return "done";
+  // No due date: never late and never "due today".
+  if (!dueDate) return "later";
   if (dueDate < today) return "overdue";
   return dueDate === today ? "today" : "later";
 }
@@ -296,6 +302,9 @@ export const DUE_WORDS: Record<CrewLang, Record<TaskDueState, string>> = {
   es: { done: "Listo ✓", overdue: "ATRASADA", today: "VENCE HOY", later: "Fecha" },
   pt: { done: "Feito ✓", overdue: "ATRASADA", today: "VENCE HOJE", later: "Prazo" },
 };
+
+/** The small word above the date. None for an open task with no date ("Due: No due date" would read wrong). */
+export const taskDueWord = (dueDate: string, state: TaskDueState, lang: CrewLang) => (!dueDate && state === "later" ? "" : DUE_WORDS[lang][state]);
 
 /* ---------- "My to-dos" in the Sub Portal ---------- */
 

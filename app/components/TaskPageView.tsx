@@ -10,7 +10,7 @@
 // Only give it what the sub may see: never a customer price, margin or office note.
 
 import type { ReactNode } from "react";
-import { DUE_STYLE, DUE_WORDS, TASK_LINK_LABEL, TASK_SHEET_WORDS, taskDueState, taskDueText, type CwNowStatus, type TaskContact, type TaskLinkKind } from "@/lib/cwNowTasks";
+import { DUE_STYLE, TASK_LINK_LABEL, TASK_SHEET_WORDS, taskDueState, taskDueText, taskDueWord, type CwNowStatus, type TaskContact, type TaskLinkKind } from "@/lib/cwNowTasks";
 import { TASK_PAGE_WORDS, type TaskPage } from "@/lib/taskPage";
 import { WELCOME_COLORS as C, welcomeFooterHtml, welcomeTopHtml } from "@/lib/welcomePacket";
 import type { CrewLang } from "@/lib/crewLinkPeople";
@@ -62,7 +62,7 @@ export function TaskSheet({ accountName, location, dueDate, dueTime, status, urg
         {kind ? <p style={{ display: "inline-block", background: "#e0f2fe", color: C.label, fontSize: 17, fontWeight: 800, borderRadius: 8, padding: "4px 12px", margin: "0 0 10px" }}>{TASK_LINK_LABEL[lang][kind]}</p> : null}
         {urgent && status !== "done" ? <p style={{ background: "#fee2e2", color: "#991b1b", border: "2px solid #dc2626", borderRadius: 10, textAlign: "center", fontSize: 21, fontWeight: 900, padding: "6px 10px", margin: "0 0 10px" }}>⚠ {words.urgent}</p> : null}
         <div style={{ ...DUE_STYLE[state], borderWidth: 3, borderStyle: "solid", borderRadius: 12, padding: "10px 14px", marginBottom: 14 }}>
-          <div style={{ fontSize: 16, fontWeight: 800 }}>{DUE_WORDS[lang][state]}</div>
+          {taskDueWord(dueDate, state, lang) ? <div style={{ fontSize: 16, fontWeight: 800 }}>{taskDueWord(dueDate, state, lang)}</div> : null}
           <div style={{ fontSize: compact ? 26 : 32, fontWeight: 900, lineHeight: 1.1 }}>{taskDueText(dueDate, dueTime, lang)}</div>
         </div>
         {children}
