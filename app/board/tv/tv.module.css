@@ -903,7 +903,7 @@
   color: #ffffff;
 }
 
-/* ---------- full screen: the button to go back in, and the F11 hint ---------- */
+/* ---------- full screen: the small button, and the reminder after a reload ---------- */
 
 /* The small one: bottom left, inside the TV's safe margin (Exit TV mode is bottom right). Hidden while the board sits still. */
 .fullButton {
@@ -950,22 +950,6 @@
 .fullButton:focus {
   outline: 4px solid #ffe27a;
   outline-offset: 3px;
-}
-
-.hint {
-  position: fixed;
-  top: 4.5%;
-  left: 50%;
-  z-index: 210;
-  transform: translateX(-50%);
-  margin: 0;
-  padding: 4px 14px;
-  border-radius: 10px;
-  background: rgba(16, 35, 63, 0.85);
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 /* ---------- the one link: staff looking at TV mode from the board ---------- */
