@@ -14,7 +14,6 @@
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { showTvCode } from "@/lib/board";
-import { exitFullScreen } from "../full-screen";
 import TvClient from "./tv-client";
 import { TvSafety } from "./tv-safety";
 import styles from "./tv.module.css";
@@ -22,6 +21,9 @@ import styles from "./tv.module.css";
 const SECRET_KEY = "cwTvSecret";
 /** The board's blue (tv.module.css .tv), behind everything while TV mode is up. */
 const TV_BLUE = "#0c447c";
+/** Resizes are acted on once they have stopped for this long, and only when the height moved more than this. */
+const RESIZE_WAIT_MS = 150;
+const SIZE_SLACK_PX = 2;
 const ASK_EVERY_MS = 3_000;
 /** How many TV screens are up in this page: 1 on /board/tv, 0 once it is left. */
 let tvScreens = 0;
@@ -54,7 +56,7 @@ export default function TvGate({ token }: { token: string }) {
   const secret = useRef("");
 
   // While TV mode is up, the rest of the app is hidden (globals.css: html[data-tv-mode]).
-  // Leaving TV mode, by any road, also ends full screen.
+  // Leaving TV mode puts the page back the way it was. Full screen is left alone: only a button press changes it.
   useEffect(() => {
     tvScreens += 1;
     const html = document.documentElement;
@@ -65,27 +67,38 @@ export default function TvGate({ token }: { token: string }) {
     document.body.style.background = TV_BLUE;
     // The real visible height, for a TV browser without "dvh" (tv.module.css: --vh). Measured again
     // whenever the window, the screen's turn or the visible part changes (Silk's toolbar hiding).
+    // Only a real change (more than 2px) is written, and only once a burst of resizes has settled.
+    // Writing --vh changes only the board's own fixed box, never the page, so it cannot cause another resize.
+    let applied = -1;
     const sizeUp = () => {
       const height = window.visualViewport?.height || window.innerHeight;
-      if (height > 0) html.style.setProperty("--vh", `${height / 100}px`);
+      if (height <= 0 || Math.abs(height - applied) <= SIZE_SLACK_PX) return;
+      applied = height;
+      html.style.setProperty("--vh", `${height / 100}px`);
     };
     sizeUp();
-    window.addEventListener("resize", sizeUp);
-    window.addEventListener("orientationchange", sizeUp);
-    window.visualViewport?.addEventListener("resize", sizeUp);
+    let timer = 0;
+    const later = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(sizeUp, RESIZE_WAIT_MS);
+    };
+    window.addEventListener("resize", later);
+    window.addEventListener("orientationchange", later);
+    window.visualViewport?.addEventListener("resize", later);
     return () => {
       tvScreens -= 1;
-      window.removeEventListener("resize", sizeUp);
-      window.removeEventListener("orientationchange", sizeUp);
-      window.visualViewport?.removeEventListener("resize", sizeUp);
+      window.clearTimeout(timer);
+      window.removeEventListener("resize", later);
+      window.removeEventListener("orientationchange", later);
+      window.visualViewport?.removeEventListener("resize", later);
       // Checked a moment later: in development React takes a screen down and puts it straight back.
+      // Full screen is not ended here: only a button press turns it on or off ("Exit TV mode" ends it).
       window.setTimeout(() => {
         if (tvScreens > 0) return;
         html.removeAttribute("data-tv-mode");
         html.style.removeProperty("--vh");
         html.style.background = before[0];
         document.body.style.background = before[1];
-        void exitFullScreen();
       }, 0);
     };
   }, []);

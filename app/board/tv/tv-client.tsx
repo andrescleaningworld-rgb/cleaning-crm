@@ -56,7 +56,7 @@ import PizzaTracker from "@/app/components/pizza-tracker";
 import ReadyBadge from "@/app/components/ready-badge";
 import SmsCreditBanner from "@/app/components/sms-credit-banner";
 import type { SmsCredit } from "@/lib/pg/sms-credit";
-import { FULL_SCREEN_EVENTS, enterFullScreen, exitFullScreen, fillsTheScreen, fullScreenSupported } from "../full-screen";
+import { FULL_SCREEN_EVENTS, enterFullScreen, exitFullScreen, fillsTheScreen, fullScreenSupported, inFullScreen } from "../full-screen";
 import styles from "./tv.module.css";
 
 type TvCleaning = { accountName: string; sub: string; status: CleaningStatus };
@@ -93,6 +93,10 @@ const HINT_MS = 12_000;
 const HINT_KEY = "cwTvF11Hint";
 /** Kept in this browser once full screen was turned on here, so a reload asks for it again. */
 const FULL_KEY = "cwTvFullScreen";
+/** A resize is acted on once things have been still this long (Silk's toolbar sends a burst of them). */
+const RESIZE_WAIT_MS = 150;
+/** A size change this small or smaller lays nothing out again. */
+const SIZE_SLACK_PX = 2;
 /** Where the whole picture sits, in pixels; it moves to the next one every 10 minutes so nothing burns into the TV. */
 const SHIFTS: [number, number][] = [
   [0, 0],
@@ -141,7 +145,8 @@ function useBoxSize(ready: unknown) {
     const measure = () => {
       const width = box.current?.clientWidth ?? 0;
       const height = box.current?.clientHeight ?? 0;
-      setSize((before) => (before.width === width && before.height === height ? before : { width, height }));
+      // 2px or less is the same size: a box that wobbles by a pixel never sets off another layout.
+      setSize((before) => (Math.abs(before.width - width) <= SIZE_SLACK_PX && Math.abs(before.height - height) <= SIZE_SLACK_PX && (before.width > 0) === (width > 0) ? before : { width, height }));
     };
     measure();
     window.addEventListener("resize", measure);
@@ -242,7 +247,10 @@ function Fitting<T>({ items, unit, row, tick, keyOf, render }: { items: T[]; uni
   const [height, setHeight] = useState(0);
 
   useLayoutEffect(() => {
-    const measure = () => setHeight(box.current?.clientHeight ?? 0);
+    const measure = () => {
+      const now = box.current?.clientHeight ?? 0;
+      setHeight((before) => (Math.abs(before - now) <= SIZE_SLACK_PX && (before > 0) === (now > 0) ? before : now));
+    };
     measure();
     window.addEventListener("resize", measure);
     const observer = typeof ResizeObserver === "undefined" || !box.current ? null : new ResizeObserver(measure);
@@ -604,24 +612,32 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   // One unit = 1% of the picture's real height (the screen less the safe margin, and less a TV browser's
   // toolbar). On a screen narrower than a TV the width decides, so nothing runs off the sides.
   useLayoutEffect(() => {
+    // The size last used: a change of 2px or less is not worth laying the whole board out again.
+    let lastHeight = -1;
+    let lastWidth = -1;
     const measure = () => {
       const height = stage.current?.clientHeight || window.innerHeight * 0.92;
       const width = stage.current?.clientWidth || window.innerWidth * 0.92;
+      if (Math.abs(height - lastHeight) <= SIZE_SLACK_PX && Math.abs(width - lastWidth) <= SIZE_SLACK_PX) return;
+      lastHeight = height;
+      lastWidth = width;
       setUnit(Math.min(height / 100, width / UNITS_WIDE));
     };
     measure();
     // Also when the visible part changes without a window resize (Silk's toolbar hiding) or the screen turns.
-    // One frame later, so the new height (--vh, set by tv-gate.tsx on the same change) is in place first.
-    let frame = 0;
+    // Once things have settled for a moment, so a burst of changes is one re-layout, after the new height
+    // (--vh, tv-gate.tsx, which waits the same time) is in place. Measuring sets no size of its own, so it
+    // cannot set off another change.
+    let timer = 0;
     const later = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(measure);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => window.requestAnimationFrame(measure), RESIZE_WAIT_MS);
     };
     window.addEventListener("resize", later);
     window.addEventListener("orientationchange", later);
     window.visualViewport?.addEventListener("resize", later);
     return () => {
-      window.cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
       window.removeEventListener("resize", later);
       window.removeEventListener("orientationchange", later);
       window.visualViewport?.removeEventListener("resize", later);
@@ -754,22 +770,25 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     window.setTimeout(() => setHint(false), HINT_MS);
   }, []);
 
-  // Is the browser out of the way? Checked again whenever full screen starts or ends (Esc), or the window changes.
+  // Is full screen on? Only the browser's own full-screen state counts, and it is read only when full
+  // screen starts or ends (a button press, or Esc / Back). Never on a resize: on a Fire Stick, Silk's
+  // toolbar hiding made the window as tall as the screen, which read as "full screen", hid the
+  // reminder, brought the toolbar back, and so on about once a second, with the screen going black
+  // each time. Nothing here ever turns full screen on or off by itself.
   useEffect(() => {
+    let last: boolean | null = null;
     const check = () => {
-      setFull(fillsTheScreen());
-      setCanFull(fullScreenSupported());
+      const now = inFullScreen();
+      // The same answer again (some browsers send the event twice): nothing changes, nothing re-draws.
+      if (now === last) return;
+      last = now;
+      setFull(now);
     };
     check();
+    setCanFull(fullScreenSupported());
     if (!fillsTheScreen() && !fullScreenSupported()) showHint();
     FULL_SCREEN_EVENTS.forEach((name) => document.addEventListener(name, check));
-    window.addEventListener("resize", check);
-    window.visualViewport?.addEventListener("resize", check);
-    return () => {
-      FULL_SCREEN_EVENTS.forEach((name) => document.removeEventListener(name, check));
-      window.removeEventListener("resize", check);
-      window.visualViewport?.removeEventListener("resize", check);
-    };
+    return () => FULL_SCREEN_EVENTS.forEach((name) => document.removeEventListener(name, check));
   }, [showHint]);
 
   // Full screen was turned on here before: after a reload the browser needs one more tap (it never allows it without one).
