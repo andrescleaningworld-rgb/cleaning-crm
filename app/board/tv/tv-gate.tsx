@@ -20,6 +20,8 @@ import { TvSafety } from "./tv-safety";
 import styles from "./tv.module.css";
 
 const SECRET_KEY = "cwTvSecret";
+/** The board's blue (tv.module.css .tv), behind everything while TV mode is up. */
+const TV_BLUE = "#0c447c";
 const ASK_EVERY_MS = 3_000;
 /** How many TV screens are up in this page: 1 on /board/tv, 0 once it is left. */
 let tvScreens = 0;
@@ -55,13 +57,34 @@ export default function TvGate({ token }: { token: string }) {
   // Leaving TV mode, by any road, also ends full screen.
   useEffect(() => {
     tvScreens += 1;
-    document.documentElement.setAttribute("data-tv-mode", "1");
+    const html = document.documentElement;
+    html.setAttribute("data-tv-mode", "1");
+    // Any gap a TV browser leaves (its toolbar sliding away) shows the board's blue, never white.
+    const before = [html.style.background, document.body.style.background];
+    html.style.background = TV_BLUE;
+    document.body.style.background = TV_BLUE;
+    // The real visible height, for a TV browser without "dvh" (tv.module.css: --vh). Measured again
+    // whenever the window, the screen's turn or the visible part changes (Silk's toolbar hiding).
+    const sizeUp = () => {
+      const height = window.visualViewport?.height || window.innerHeight;
+      if (height > 0) html.style.setProperty("--vh", `${height / 100}px`);
+    };
+    sizeUp();
+    window.addEventListener("resize", sizeUp);
+    window.addEventListener("orientationchange", sizeUp);
+    window.visualViewport?.addEventListener("resize", sizeUp);
     return () => {
       tvScreens -= 1;
+      window.removeEventListener("resize", sizeUp);
+      window.removeEventListener("orientationchange", sizeUp);
+      window.visualViewport?.removeEventListener("resize", sizeUp);
       // Checked a moment later: in development React takes a screen down and puts it straight back.
       window.setTimeout(() => {
         if (tvScreens > 0) return;
-        document.documentElement.removeAttribute("data-tv-mode");
+        html.removeAttribute("data-tv-mode");
+        html.style.removeProperty("--vh");
+        html.style.background = before[0];
+        document.body.style.background = before[1];
         void exitFullScreen();
       }, 0);
     };

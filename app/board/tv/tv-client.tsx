@@ -34,12 +34,16 @@
 //
 // Full screen (no browser tabs or address bar) starts with the click on the
 // board's "TV Mode (Full Screen)" button. When it is not on (Esc was pressed,
-// or the TV opened its own link), moving the mouse shows one big "Full
-// screen" button; a browser that cannot do it gets a small "Press F11" hint,
-// once. The mouse pointer, that button and "Exit TV mode" (for staff who came
+// or the TV opened its own link), moving the mouse or pressing a remote button
+// shows a small "Full screen" button in the bottom-left corner; a browser that
+// cannot do it gets a small "Press F11" hint, once. A TV that had full screen
+// on before (kept in its browser) shows a big "Tap for full screen" after a
+// reload, since a browser needs a tap for it; it stays until full screen is on.
+// The mouse pointer, the small button and "Exit TV mode" (for staff who came
 // from the board) all go away after a few seconds without the mouse moving.
-// The page asks for fresh data every minute and keeps the last board when a
-// refresh fails ("Reconnecting…" in the top strip).
+// The page asks for fresh data every minute (data only, never a page reload,
+// so full screen stays on) and keeps the last board when a refresh fails
+// ("Reconnecting…" in the top strip).
 
 import Image from "next/image";
 import Link from "next/link";
@@ -87,6 +91,8 @@ const SHIFT_MS = 10 * 60_000;
 const IDLE_MS = 4_000;
 const HINT_MS = 12_000;
 const HINT_KEY = "cwTvF11Hint";
+/** Kept in this browser once full screen was turned on here, so a reload asks for it again. */
+const FULL_KEY = "cwTvFullScreen";
 /** Where the whole picture sits, in pixels; it moves to the next one every 10 minutes so nothing burns into the TV. */
 const SHIFTS: [number, number][] = [
   [0, 0],
@@ -534,6 +540,8 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const [full, setFull] = useState(true);
   const [canFull, setCanFull] = useState(false);
   const [hint, setHint] = useState(false);
+  /** This TV was put in full screen before (kept in this browser): after a reload, ask for the one tap again. */
+  const [wantsFull, setWantsFull] = useState(false);
   const [idle, setIdle] = useState(false);
 
   const load = useCallback(async () => {
@@ -602,8 +610,22 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
       setUnit(Math.min(height / 100, width / UNITS_WIDE));
     };
     measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
+    // Also when the visible part changes without a window resize (Silk's toolbar hiding) or the screen turns.
+    // One frame later, so the new height (--vh, set by tv-gate.tsx on the same change) is in place first.
+    let frame = 0;
+    const later = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    window.addEventListener("resize", later);
+    window.addEventListener("orientationchange", later);
+    window.visualViewport?.addEventListener("resize", later);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", later);
+      window.removeEventListener("orientationchange", later);
+      window.visualViewport?.removeEventListener("resize", later);
+    };
   }, [hasData, problem]);
 
   // An opened list closes by itself, so the TV is never left on it.
@@ -742,11 +764,22 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     if (!fillsTheScreen() && !fullScreenSupported()) showHint();
     FULL_SCREEN_EVENTS.forEach((name) => document.addEventListener(name, check));
     window.addEventListener("resize", check);
+    window.visualViewport?.addEventListener("resize", check);
     return () => {
       FULL_SCREEN_EVENTS.forEach((name) => document.removeEventListener(name, check));
       window.removeEventListener("resize", check);
+      window.visualViewport?.removeEventListener("resize", check);
     };
   }, [showHint]);
+
+  // Full screen was turned on here before: after a reload the browser needs one more tap (it never allows it without one).
+  useEffect(() => {
+    try {
+      setWantsFull(window.localStorage.getItem(FULL_KEY) === "1");
+    } catch {
+      // A browser that keeps nothing: no reminder, the small button is still there.
+    }
+  }, []);
 
   // No mouse movement for a few seconds: the pointer and the buttons go away. Any movement brings them back.
   useEffect(() => {
@@ -768,17 +801,27 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     window.addEventListener("mousemove", moved);
     window.addEventListener("mousedown", wake);
     window.addEventListener("touchstart", wake);
+    // A TV remote's buttons: the Full screen button comes back too.
+    window.addEventListener("keydown", wake);
     return () => {
       window.clearTimeout(timer);
       window.removeEventListener("mousemove", moved);
       window.removeEventListener("mousedown", wake);
       window.removeEventListener("touchstart", wake);
+      window.removeEventListener("keydown", wake);
     };
   }, []);
 
-  /** The big "Full screen" button. A browser only allows it from inside a click, which this is. */
+  /** The "Full screen" button and the reminder after a reload. A browser only allows it from inside a click, which this is. */
   const goFull = async () => {
-    if (!(await enterFullScreen())) showHint();
+    if (!(await enterFullScreen())) return showHint();
+    // Remembered on this TV, so the next reload offers it again with one tap.
+    try {
+      window.localStorage.setItem(FULL_KEY, "1");
+    } catch {
+      // A browser that keeps nothing: it just is not offered after a reload.
+    }
+    setWantsFull(true);
   };
 
   // The squares that have notes, late and stuck notes first in each.
@@ -1030,7 +1073,12 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
           <p className={styles.ruleText}>{MOTTO.en}</p>
         </footer>
       </div>
-      {!full && canFull && !idle ? (
+      {!full && canFull && wantsFull ? (
+        // Full screen was on before this reload: one tap (or OK on the remote, it has the focus) puts it back. Gone once it is on.
+        <button type="button" className={styles.fullPrompt} autoFocus onClick={() => void goFull()}>
+          Tap for full screen
+        </button>
+      ) : !full && canFull && !idle ? (
         <button type="button" className={styles.fullButton} onClick={() => void goFull()}>
           Full screen
         </button>

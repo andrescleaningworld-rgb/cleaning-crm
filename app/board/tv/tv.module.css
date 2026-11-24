@@ -20,14 +20,22 @@
   bottom: 0;
   z-index: 200;
   width: 100vw;
+  /* The visible height: "dvh" follows a toolbar sliding away. A TV browser without it
+     uses --vh, the visible height measured by tv-gate.tsx; 100vh only until that runs. */
   height: 100vh;
-  height: 100dvh;
+  height: calc(var(--vh, 1vh) * 100);
   overflow: hidden;
   background: #0c447c;
   font-family: var(--ui-font, system-ui, sans-serif);
   color: #ffffff;
   -webkit-user-select: none;
   user-select: none;
+}
+
+@supports (height: 100dvh) {
+  .tv {
+    height: 100dvh;
+  }
 }
 
 /* The whole picture, 4% in from every edge. It moves a few pixels every 10 minutes (burn-in); the margin has room for that. */
@@ -897,7 +905,27 @@
 
 /* ---------- full screen: the button to go back in, and the F11 hint ---------- */
 
+/* The small one: bottom left, inside the TV's safe margin (Exit TV mode is bottom right). Hidden while the board sits still. */
 .fullButton {
+  position: fixed;
+  left: 4.5%;
+  bottom: 4.5%;
+  z-index: 210;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #0c447c;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* After a reload on a TV that had full screen on: one big tap to put it back. Stays until it is on. */
+.fullPrompt {
   position: fixed;
   left: 50%;
   bottom: calc(var(--u, 1vh) * 14);
@@ -916,6 +944,12 @@
   white-space: nowrap;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
   cursor: pointer;
+}
+
+.fullPrompt:focus,
+.fullButton:focus {
+  outline: 4px solid #ffe27a;
+  outline-offset: 3px;
 }
 
 .hint {
