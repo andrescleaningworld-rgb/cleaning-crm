@@ -41,6 +41,28 @@ export function readCheckinToken(token: string, now = Date.now()): number | null
   }
 }
 
+/**
+ * When the answer page was made, signed, in the page's form. The tap is only
+ * counted when it comes at least a second after (app/checkin/[token]). Tied
+ * to the check-in, so one page's stamp does not work on another.
+ */
+export function checkinPageStamp(checkinId: number, now = Date.now()): string {
+  const body = `p${checkinId}-${now}`;
+  return `${body}.${sign(body)}`;
+}
+
+/** How long ago (ms) a good stamp for this check-in was made; null when it is missing or not ours. */
+export function checkinPageAge(stamp: string, checkinId: number, now = Date.now()): number | null {
+  const [body, signature, extra] = String(stamp ?? "").split(".");
+  if (!body || !signature || extra !== undefined) return null;
+  const expected = Buffer.from(sign(body));
+  const given = Buffer.from(signature);
+  if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+  const match = /^p(\d+)-(\d+)$/.exec(body);
+  if (!match || Number(match[1]) !== checkinId) return null;
+  return now - Number(match[2]);
+}
+
 /** "better" opens the feedback box and saves nothing (the OK follow-up email). */
 export type CheckinLinkAction = "great" | "ok" | "attention" | "stop" | "better";
 

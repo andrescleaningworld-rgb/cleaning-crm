@@ -2,17 +2,27 @@
 // from the check-in email. No login: the signed link is the key (30 days,
 // lib/checkinLink.ts; public in proxy.ts). Plain HTML, huge buttons, phone first.
 //
-// Opening the link only shows the page; the answer is sent from it (by
-// itself, or with the button), so a mail program that "opens" links to scan
-// them does not answer for the customer.
-//   great / ok / attention → the answer is saved at once (the office gets an
-//       email; Needs attention also puts a paper in the manager's square),
+// Opening the link only shows the page with the answer and a big "Tap to
+// send" button (and the other two answers, in case of a wrong tap). Nothing
+// is saved until the customer taps it, so an email security scanner that
+// opens every link (and runs the page's scripts) does not answer for them.
+// Scanners can press buttons too, so a tap (or "Stop") only counts when it
+// looks like a person: the page's script ran and the button was on screen a
+// second first (tapForm), it came 2 minutes or more after the email went
+// out, and not seconds after another tap. Otherwise it is kept in the
+// history as "scanner, not a person" and saves nothing; the customer still
+// sees the normal page, and a note they write makes their tap count.
+// The FIRST answer sent is final. Any tap after that shows "Thanks! We
+// already got your answer: …" with the feedback box, and is only kept in
+// the history (lib/pg/customer-checkin.ts). Notes always add on.
+//   great / ok / attention, tapped → the first one is saved (the office gets
+//       an email; Needs attention also puts a paper in the manager's square),
 //       then the feedback box:
 //         😀 Great            "Anything we can do even better?" (optional)
 //         😐 OK               "What can we do better?" + best way to reach you
 //         😟 Needs attention  "We're sorry — tell us what went wrong…", in a
 //                             red box, + best way to reach you
-//       with photos, and the three answers to change it before Submit.
+//       with photos.
 //   stop → "Stop these emails?" → Yes
 // The old monthly links (?a=up / down) still work as Great / Needs attention.
 // The test link (id 0, "Send me a test") shows the same pages and saves nothing.
@@ -23,7 +33,7 @@
 
 import { NextRequest } from "next/server";
 import { put } from "@/lib/files";
-import { readCheckinToken } from "@/lib/checkinLink";
+import { checkinPageAge, checkinPageStamp, readCheckinToken } from "@/lib/checkinLink";
 import { CHECKIN_PAGE as W, CHECKIN_RATINGS, customerEmoji, type CheckinRating } from "@/lib/customerCheckin";
 import { escHtml } from "@/lib/simpleEmail";
 import { checkRateLimit } from "@/lib/siteLinkRateLimit";
@@ -75,30 +85,66 @@ function ratingFrom(value: unknown): CheckinRating | null {
   return null;
 }
 
-/** A form that sends itself (the button is there too, in case it does not). */
-function sendNow(rating: CheckinRating): string {
-  const r = CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
+const ratingInfo = (rating: CheckinRating) => CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
+
+/** A person's tap: the button was on screen this long first (simple scanners press it at once, or without running the page). */
+const MIN_SHOWN_MS = 1000;
+
+/**
+ * The tap form ("Tap to send", "Yes, stop them"): a signed stamp of when the
+ * page was made (p), and how long the button was on screen (h), filled in by
+ * the page's script. A tap under a second is not sent (a person just taps
+ * again); a tap without the script sends h empty, and the server keeps it
+ * only in the history (lib/pg/customer-checkin.ts, "ignored").
+ */
+function tapForm(id: number, action: string, button: string, color?: string): string {
   return (
-    `<form id="send" method="post"><input type="hidden" name="a" value="${rating}" />` +
-    `<button class="btn" style="background:${r.color}" type="submit">${escHtml(r.customer)}</button></form>` +
-    `<script>document.getElementById("send").submit()</script>`
+    `<form id="tap" method="post"><input type="hidden" name="a" value="${action}" />` +
+    `<input type="hidden" name="p" value="${escHtml(checkinPageStamp(id))}" /><input type="hidden" name="h" value="" />` +
+    `<button class="btn"${color ? ` style="background:${color}"` : ""} type="submit">${escHtml(button)}</button></form>` +
+    `<script>(function(){var f=document.getElementById("tap");if(!f)return;var b=f.querySelector("button"),h=f.querySelector("input[name=h]"),t0=0;` +
+    `function seen(){if(!t0)t0=Date.now();}` +
+    `if(window.IntersectionObserver){new IntersectionObserver(function(e){if(e[0]&&e[0].isIntersecting)seen();},{threshold:0.5}).observe(b);}else seen();` +
+    `f.addEventListener("submit",function(e){var ms=t0?Date.now()-t0:0;if(ms<${MIN_SHOWN_MS}){e.preventDefault();return;}h.value=String(ms);});})();</script>`
   );
 }
 
-// The words per answer, for changing the answer on the page.
-const PROMPTS = JSON.stringify(Object.fromEntries(CHECKIN_RATINGS.map((r) => [r.value, { prompt: W.prompt[r.value], hint: W.hint[r.value] }]))).replace(/</g, "\\u003c");
+/** Why the tap does not look like a person, from the tap form ("" = it does). */
+function pageProblem(form: FormData | null, id: number): string {
+  const shown = String(form?.get("h") ?? "").trim();
+  const age = checkinPageAge(String(form?.get("p") ?? ""), id);
+  if (age === null) return "it did not come from the answer page";
+  if (shown === "" || !Number.isFinite(Number(shown))) return "the page's script did not run";
+  if (Number(shown) < MIN_SHOWN_MS || age < MIN_SHOWN_MS) return "tapped less than a second after the button showed";
+  return "";
+}
 
-// Changing the answer swaps the box's words. Photos are made smaller on the
-// phone before they are sent (big phone photos would not fit in one upload),
-// then the page the server answers replaces this one.
+const stopPage = (id: number, again = false) =>
+  page(
+    `<h1>${escHtml(W.stopTitle)}</h1>${testNote(id === 0)}${again ? `<p>${escHtml(W.stopAgain)}</p>` : ""}${tapForm(id, "stop", W.stopButton)}`
+  );
+
+/**
+ * The page a link in the email opens: the answer and one big button. Nothing
+ * is sent by itself: the customer taps. The other two answers are small
+ * links (they only change this page).
+ */
+function confirmPage(id: number, rating: CheckinRating): Response {
+  const r = ratingInfo(rating);
+  const others = CHECKIN_RATINGS.filter((c) => c.value !== rating)
+    .map((c) => `<a href="?a=${c.value}" style="color:${c.color};font-weight:700;margin:0 10px;white-space:nowrap">${escHtml(c.customer)}</a>`)
+    .join(" ");
+  return page(
+    `<h1>${escHtml(W.confirmTitle)}</h1><p style="font-size:26px;font-weight:700;color:${r.color};margin:6px 0 0">${escHtml(r.customer)}</p>${testNote(id === 0)}` +
+      tapForm(id, rating, W.confirmButton, r.color) +
+      `<p class="note" style="margin-top:22px">${escHtml(W.confirmOther)}<br>${others}</p>`
+  );
+}
+
+// Photos are made smaller on the phone before they are sent (big phone photos
+// would not fit in one upload), then the page the server answers replaces this one.
 const PAGE_SCRIPT = `<script>
-(function(){var f=document.getElementById("better");if(!f)return;var P=${PROMPTS};
-function show(v){var p=P[v];if(!p)return;var box=document.getElementById("box");box.className="box "+(v==="attention"?"bad":v==="great"?"light":"");
-document.getElementById("prompt").textContent=p.prompt;document.getElementById("hint").textContent=p.hint;
-document.getElementById("reachBox").style.display=v==="great"?"none":"";
-var s=document.getElementById("okSign");if(s)s.style.display=v==="ok"?"":"none";}
-[].forEach.call(f.querySelectorAll("input[name=rating]"),function(r){r.addEventListener("change",function(){show(r.value);});});
-if(!window.FormData||!window.fetch)return;
+(function(){var f=document.getElementById("better");if(!f||!window.FormData||!window.fetch)return;
 function shrink(file){return new Promise(function(done){if(!/^image\\//.test(file.type)){done(file);return;}
 var img=new Image(),url=URL.createObjectURL(file);img.onload=function(){var s=Math.min(1,1600/Math.max(img.width,img.height));
 var c=document.createElement("canvas");c.width=Math.round(img.width*s);c.height=Math.round(img.height*s);
@@ -112,19 +158,21 @@ return fetch(location.href,{method:"POST",body:d});}).then(function(r){return r.
 .catch(function(){[].forEach.call(all,function(x){x.disabled=false;});b.textContent=label;alert("It did not send. Please try again.");});});})();
 </script>`;
 
-/** The answer is saved: the feedback box, with the three answers to change it. */
-function feedbackPage(rating: CheckinRating, test: boolean, signature: string[] = []): Response {
-  const r = CHECKIN_RATINGS.find((entry) => entry.value === rating)!;
-  const choices = CHECKIN_RATINGS.map(
-    (c) =>
-      `<label class="choice" style="color:${c.color}"><span class="e">${customerEmoji(c)}</span>${escHtml(c.customer.slice(customerEmoji(c).length).trim())}` +
-      `<input type="radio" name="rating" value="${c.value}"${c.value === rating ? " checked" : ""} /></label>`
-  ).join("");
+/**
+ * The answer is saved: the feedback box for it. already = the customer tapped
+ * again after the first answer: "Thanks! We already got your answer: …" (the
+ * first answer stays; notes still add on).
+ */
+function feedbackPage(rating: CheckinRating, test: boolean, signature: string[] = [], already = false): Response {
+  const r = ratingInfo(rating);
   const boxClass = rating === "attention" ? "bad" : rating === "great" ? "light" : "";
+  const heading = already
+    ? `<h1>${escHtml(W.already)}</h1><p style="font-size:26px;font-weight:700;color:${r.color};margin:6px 0 4px">${escHtml(r.customer)}</p>` +
+      `<p class="note" style="margin:0 0 14px">${escHtml(W.alreadyMore)}</p>`
+    : `<h1>${escHtml(`${customerEmoji(r)} ${W.got}`)}</h1>`;
   return page(
-    `<h1>${escHtml(`${customerEmoji(r)} ${W.got}`)}</h1>${testNote(test)}` +
-      `<form id="better" method="post" enctype="multipart/form-data">` +
-      `<p class="note" style="margin:0">${escHtml(W.change)}</p><div class="choices" role="radiogroup" aria-label="${escHtml(W.change)}">${choices}</div>` +
+    `${heading}${testNote(test)}` +
+      `<form id="better" method="post" enctype="multipart/form-data"><input type="hidden" name="shown" value="${rating}" />` +
       `<div id="box" class="box ${boxClass}"><h2 id="prompt">${escHtml(W.prompt[rating])}</h2><p class="note" id="hint" style="margin:0">${escHtml(W.hint[rating])}</p>` +
       (signature.length ? `<p class="note" id="okSign" style="margin:8px 0 0${rating === "ok" ? "" : ";display:none"}">${signature.map(escHtml).join("<br>")}</p>` : "") +
       `<label for="c" class="sr">Your comment</label><textarea id="c" name="comment" maxlength="2000"></textarea>` +
@@ -163,18 +211,18 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (!(await checkRateLimit(`checkin:${id}`, PER_MINUTE))) return tooMany();
   const action = request.nextUrl.searchParams.get("a");
   const rating = ratingFrom(action);
-  if (rating) return page(`<h1>${escHtml(customerEmoji(CHECKIN_RATINGS.find((r) => r.value === rating)!))}</h1>${sendNow(rating)}`);
+  if (rating) {
+    // Already answered: say so (the first answer is final). Opening a link saves nothing.
+    const saved = id === 0 ? "" : await currentRating(id);
+    if (saved) return feedbackPage(saved, false, await checkinSignature(id).catch(() => []), true);
+    return confirmPage(id, rating);
+  }
   if (action === "better") {
     if (id === 0) return feedbackPage("ok", true);
     const saved = await currentRating(id);
     return saved ? feedbackPage(saved, false, await checkinSignature(id).catch(() => [])) : gone();
   }
-  if (action === "stop") {
-    return page(
-      `<h1>${escHtml(W.stopTitle)}</h1>${testNote(id === 0)}<form method="post"><input type="hidden" name="a" value="stop" />` +
-        `<button class="btn" type="submit">${escHtml(W.stopButton)}</button></form>`
-    );
-  }
+  if (action === "stop") return stopPage(id);
   return gone();
 }
 
@@ -187,14 +235,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const action = String(form?.get("a") ?? "");
     const test = id === 0;
     const origin = request.nextUrl.origin;
+    const agent = request.headers.get("user-agent") ?? "";
 
     const rating = ratingFrom(action);
     if (rating) {
-      if (!test && !(await answerCheckin(id, rating, origin))) return gone();
-      return feedbackPage(rating, test, test ? [] : await checkinSignature(id).catch(() => []));
+      if (test) return feedbackPage(rating, true);
+      const result = await answerCheckin(id, rating, origin, { agent, pageProblem: pageProblem(form, id) });
+      if (!result.found) return gone();
+      // Ignored (looked like a scanner): the same "Got it" page, so a person can still write a
+      // note; a note makes their tap count (lib/pg/customer-checkin.ts). Already answered: say so.
+      const saved = result.ignored ? await currentRating(id) : result.rating;
+      return feedbackPage(saved || rating, false, await checkinSignature(id).catch(() => []), result.ignored ? saved !== "" : !result.first);
     }
     if (action === "comment" || action === "skip") {
-      const chosen = ratingFrom(form?.get("rating"));
       if (!test && form) {
         const accountId = await checkinAccountId(id);
         if (!accountId) return gone();
@@ -202,11 +255,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
         const photos = skip ? [] : await savePhotos(form, accountId);
         await submitFeedback(
           id,
-          { rating: chosen, comment: skip ? "" : String(form.get("comment") ?? ""), reach: skip ? "" : String(form.get("reach") ?? ""), photos },
-          origin
+          { comment: skip ? "" : String(form.get("comment") ?? ""), reach: skip ? "" : String(form.get("reach") ?? ""), photos, shown: ratingFrom(form.get("shown")) },
+          origin,
+          agent
         );
       }
-      const now = test ? chosen : (await currentRating(id)) || chosen;
+      const now = test ? "" : await currentRating(id);
       if (action === "skip") {
         return now === "great"
           ? page(`<h1>${escHtml(W.thanksGreat)}</h1><p>${escHtml(W.thanksGreatText)}</p>${testNote(test)}`)
@@ -215,7 +269,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return page(`<h1>${escHtml(W.thanksSent)}</h1>${testNote(test)}`);
     }
     if (action === "stop") {
-      if (!test && !(await optOutCheckin(id))) return gone();
+      if (!test) {
+        const stopped = await optOutCheckin(id, { agent, pageProblem: pageProblem(form, id) });
+        if (stopped === "gone") return gone();
+        // Looked like a scanner: nothing saved, the button again (a person just taps once more).
+        if (stopped === "ignored") return stopPage(id, true);
+      }
       return page(`<h1>${escHtml(W.stopped)}</h1>${testNote(test)}`);
     }
     return gone();

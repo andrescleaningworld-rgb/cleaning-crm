@@ -83,7 +83,7 @@ export default function AccountCheckins({ accountId, cancelled }: { accountId: s
                 {row.error ? <p className="ui-muted">{row.error}</p> : null}
                 {row.status === "sent" ? (
                   <div style={{ marginTop: 6 }}>
-                    <CheckinAnswer row={row} />
+                    <CheckinAnswer row={row} history />
                   </div>
                 ) : null}
                 {/* Needs attention / OK: make a complaint from it by hand (never automatic). */}

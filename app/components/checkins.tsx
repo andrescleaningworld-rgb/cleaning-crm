@@ -7,8 +7,10 @@
 //   CheckinEmailSheet  "View email": the saved copy of what was sent. Shown
 //                      in a sandboxed frame: its buttons do nothing here, so
 //                      nobody answers for the customer by mistake.
-//   CheckinAnswer      😀 Great / 😐 OK / 😟 Needs attention, the comment, the
-//                      best way to reach them, and photos.
+//   CheckinAnswer      😀 Great / 😐 OK / 😟 Needs attention (the first answer:
+//                      final), every note with its time, the best way to
+//                      reach them, photos, and (history) CheckinHistory:
+//                      every tap and note, with the time.
 //   CheckinProgress    Sent → 👁 Viewed → ✅ / ⚠️ Responded, the time on hover.
 // Used by the account page (app/accounts/[id]/checkins.tsx) and the
 // Check-ins page (app/check-ins).
@@ -16,7 +18,18 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { BigButton, ErrorBox, Sheet, StatusPill, showToast, type StatusKind } from "@/app/ui";
-import { CHECKIN_DAILY_LIMIT, CHECKIN_STATUS_TEXT, CHECKIN_VIEWED_NOTE, ratingOf, ratingText, type CheckinBatchKind, type CheckinRow, type CheckinSkip, type CheckinStatus } from "@/lib/customerCheckin";
+import {
+  CHECKIN_DAILY_LIMIT,
+  CHECKIN_STATUS_TEXT,
+  CHECKIN_VIEWED_NOTE,
+  ratingOf,
+  ratingText,
+  type CheckinBatchKind,
+  type CheckinEvent,
+  type CheckinRow,
+  type CheckinSkip,
+  type CheckinStatus,
+} from "@/lib/customerCheckin";
 
 type Preview = {
   willSend: { accountId: string; accountName: string; email: string }[];
@@ -254,17 +267,83 @@ export function CheckinEmailSheet({ checkinId, onClose }: { checkinId: number | 
 
 const RATING_KIND: Record<string, StatusKind> = { great: "done", ok: "waiting", attention: "needs-you" };
 
-/** The answer as a pill, then the comment and the photos. */
-export function CheckinAnswer({ row, compact = false }: { row: Pick<CheckinRow, "answer" | "answeredAt" | "comment" | "photos"> & { reach?: string }; compact?: boolean }) {
+/** One line of a check-in's history, in plain words. */
+function eventText(event: CheckinEvent, saved: string): string {
+  const tapped = event.rating ? ratingText(event.rating) : "";
+  if (event.kind === "answer") return `Answered ${tapped} (saved: the first answer is final)`;
+  if (event.kind === "repeat") return event.rating === ratingOf(saved) ? `Tapped ${tapped} again (no change)` : `Tapped ${tapped}: not saved, the answer stays ${ratingText(saved)}`;
+  if (event.kind === "stop") return "Stopped these emails";
+  if (event.kind === "ignored") return `${tapped ? `Tapped ${tapped}` : "A tap"}: ignored (${event.note})`;
+  if (event.kind === "earlier") return event.note;
+  if (event.kind === "staff") return `Staff: ${event.note}`;
+  const parts = [event.note ? "Sent a note" : "", event.photos ? `${event.photos} photo${event.photos === 1 ? "" : "s"}` : "", event.reach ? `best way to reach: ${event.reach}` : ""].filter(Boolean);
+  return parts.join(" · ") || "Sent the feedback box";
+}
+
+/**
+ * Every tap and note on one check-in, oldest first (migration 093). Taps the
+ * browser marked as a bot or an email scanner say so.
+ */
+export function CheckinHistory({ row }: { row: Pick<CheckinRow, "answer" | "events"> }) {
+  const events = row.events ?? [];
+  if (events.length === 0) return null;
+  return (
+    <details open={events.length <= 6}>
+      <summary className="ui-muted" style={{ cursor: "pointer" }}>
+        History ({events.length})
+      </summary>
+      <ul className="ui-card-text" style={{ margin: "4px 0 0", paddingLeft: 18 }}>
+        {events.map((event, index) => (
+          <li key={`${event.at}-${index}`}>
+            <span className="ui-muted">{whenText(event.at)}</span> — {eventText(event, row.answer)}
+            {event.scanner ? <span className="ui-muted"> · scanner, not a person</span> : null}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** The answer as a pill, then every note (with its time when kept), and the photos. history = the list of every tap too. */
+export function CheckinAnswer({
+  row,
+  compact = false,
+  history = false,
+}: {
+  row: Pick<CheckinRow, "answer" | "answeredAt" | "comment" | "photos"> & { reach?: string; events?: CheckinEvent[] };
+  compact?: boolean;
+  history?: boolean;
+}) {
   const rating = ratingOf(row.answer);
-  if (!rating) return <span className="ui-muted">No answer yet</span>;
+  const notes = (row.events ?? []).filter((event) => event.kind === "note" && event.note);
+  if (!rating) {
+    return (
+      <div className="ui-stack" style={{ gap: 4 }}>
+        <span className="ui-muted">No answer yet</span>
+        {history ? <CheckinHistory row={row} /> : null}
+      </div>
+    );
+  }
   return (
     <div className="ui-stack" style={{ gap: 4 }}>
       <div>
         <StatusPill kind={RATING_KIND[rating]}>{ratingText(row.answer)}</StatusPill>
         {!compact && row.answeredAt ? <span className="ui-muted"> {whenText(row.answeredAt)}</span> : null}
       </div>
-      {row.comment ? <p className="ui-card-text">&quot;{row.comment}&quot;</p> : null}
+      {/* Notes kept with their time (093); older ones are only on the row, a blank line between. */}
+      {notes.length ? (
+        <ul className="ui-card-text" style={{ margin: 0, paddingLeft: 18 }} aria-label="Customer notes">
+          {notes.map((event, index) => (
+            <li key={`${event.at}-${index}`} style={{ whiteSpace: "pre-wrap" }}>
+              <span className="ui-muted">{whenText(event.at)}:</span> &quot;{event.note}&quot;
+            </li>
+          ))}
+        </ul>
+      ) : row.comment ? (
+        <p className="ui-card-text" style={{ whiteSpace: "pre-wrap" }}>
+          &quot;{row.comment}&quot;
+        </p>
+      ) : null}
       {row.reach ? <p className="ui-card-text">Best way to reach them: {row.reach}</p> : null}
       {row.photos.length ? (
         <div className="ui-actions-row">
@@ -275,6 +354,7 @@ export function CheckinAnswer({ row, compact = false }: { row: Pick<CheckinRow, 
           ))}
         </div>
       ) : null}
+      {history ? <CheckinHistory row={row} /> : null}
     </div>
   );
 }

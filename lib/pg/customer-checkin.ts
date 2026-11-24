@@ -21,9 +21,16 @@
 // "Viewed": the sent email carries a 1x1 picture (app/checkin/[token]/open,
 // migration 080) that records the first open and how many. Approximate.
 //
-// Answers (app/checkin): every answer, and every feedback box sent after it,
-// emails the office (crm@; "⚠️ Needs attention" starts the subject for
-// those). The answer can be changed on the page before Submit.
+// Answers (app/checkin): the FIRST answer is final. It is saved only while
+// none is saved yet (one UPDATE ... WHERE answer = ''), so two taps at once
+// save one. Later taps never change it: they are kept in the history
+// (customer_checkin_events, migration 093) with the time and the browser.
+// A tap or "Stop" that looks like an email scanner (scannerReason: within 2
+// minutes of sending, seconds after another tap, or without the page's
+// script / under a second on screen) saves nothing and is kept as "ignored".
+// Notes from the feedback box add on to the ones before (never replace).
+// The first answer, and every note after it, emails the office (crm@;
+// "⚠️ Needs attention" starts the subject for those).
 // 😀 Great is just logged. 😟 Needs attention puts a
 // paper in the account manager's square right away, with a text and a push.
 // 😐 OK does too ("visit within 5 business days", red after that, down when a
@@ -49,12 +56,14 @@ import {
   CHECKIN_TEST_EMAIL,
   checkinEmail,
   checkinOkEmail,
+  looksLikeScanner,
   ratingOf,
   ratingText,
   signatureLines,
   type CheckinAnswerValue,
   type CheckinBatch,
   type CheckinBatchKind,
+  type CheckinEvent,
   type CheckinLast,
   type CheckinList,
   type CheckinRating,
@@ -111,6 +120,64 @@ async function viewReady(): Promise<boolean> {
     viewCache = false;
   }
   return viewCache;
+}
+
+let eventsCache = false;
+
+/** Migration 093 is in (every tap and note kept). Before it, nothing is kept but the answer and the notes. */
+async function eventsReady(): Promise<boolean> {
+  if (eventsCache) return true;
+  try {
+    const rows = (await getSql()`SELECT to_regclass('public.customer_checkin_events') IS NOT NULL AS ok`) as { ok: boolean }[];
+    eventsCache = rows[0]?.ok === true;
+  } catch {
+    eventsCache = false;
+  }
+  return eventsCache;
+}
+
+type EventInput = { kind: "answer" | "repeat" | "note" | "stop" | "ignored"; rating?: string; note?: string; reach?: string; photos?: string[]; agent?: string; scanner?: boolean };
+
+/** Keeps one tap or note in the history. Never breaks the answer itself. */
+async function addEvent(id: number, accountId: string, event: EventInput): Promise<void> {
+  if (id <= 0 || !(await eventsReady())) return;
+  try {
+    await getSql()`
+      INSERT INTO customer_checkin_events (checkin_id, account_id, kind, rating, note, reach, photos, agent, scanner)
+      VALUES (${id}, ${accountId}, ${event.kind}, ${event.rating ?? ""}, ${event.note ?? ""}, ${event.reach ?? ""}, ${(event.photos ?? []).join(",")}, ${(event.agent ?? "").slice(0, 400)}, ${event.scanner === true})
+    `;
+  } catch (error) {
+    console.error("[checkin] history:", error instanceof Error ? error.message : error);
+  }
+}
+
+/** Every check-in's history, oldest first. Empty before migration 093. */
+async function eventsFor(ids: number[]): Promise<Map<number, CheckinEvent[]>> {
+  const out = new Map<number, CheckinEvent[]>();
+  if (ids.length === 0 || !(await eventsReady())) return out;
+  const rows = (await getSql()`
+    SELECT checkin_id::text, at, kind, rating, note, reach, photos, agent, scanner FROM customer_checkin_events
+    WHERE checkin_id = ANY(${ids}) ORDER BY at, id
+  `) as { checkin_id: string; at: string | Date; kind: CheckinEvent["kind"]; rating: string; note: string; reach: string; photos: string; agent: string; scanner: boolean }[];
+  for (const row of rows) {
+    const list = out.get(Number(row.checkin_id)) ?? [];
+    list.push({
+      at: iso(row.at),
+      kind: row.kind,
+      rating: ratingOf(row.rating),
+      note: clean(row.note),
+      reach: clean(row.reach),
+      photos: photoList(row.photos).length,
+      scanner: row.scanner === true || (row.kind !== "earlier" && row.kind !== "staff" && looksLikeScanner(row.agent)),
+    });
+    out.set(Number(row.checkin_id), list);
+  }
+  return out;
+}
+
+async function withEvents(rows: CheckinRow[]): Promise<CheckinRow[]> {
+  const events = await eventsFor(rows.filter((row) => row.status === "sent").map((row) => row.id)).catch(() => new Map<number, CheckinEvent[]>());
+  return rows.map((row) => ({ ...row, events: events.get(row.id) ?? [] }));
 }
 
 /** "2026-11" in New York (the old month column still needs a value). */
@@ -401,12 +468,12 @@ export async function sendTestCheckin(origin: string, by: string): Promise<boole
 
 /* ---------- answers (app/checkin) ---------- */
 
-type AnswerRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; photos: string; reach: string; sent_to: string };
+type AnswerRow = { id: string; account_id: string; account_name: string; manager: string; answer: string; comment: string; photos: string; reach: string; sent_to: string; sent_at: string | Date | null };
 
 async function answerRow(id: number): Promise<AnswerRow | null> {
   const reach = (await viewReady()) ? "k.reach" : "''";
   const rows = (await getSql().query(
-    `SELECT k.id::text, k.account_id, k.answer, k.comment, k.photos, k.sent_to, ${reach} AS reach, COALESCE(a.account_name, '') AS account_name,
+    `SELECT k.id::text, k.account_id, k.answer, k.comment, k.photos, k.sent_to, k.sent_at, ${reach} AS reach, COALESCE(a.account_name, '') AS account_name,
             COALESCE(NULLIF(btrim(m.name), ''), a.manager_raw, '') AS manager
      FROM customer_checkins k
      LEFT JOIN accounts a ON a.id = k.account_id
@@ -498,7 +565,7 @@ export async function checkinSignature(id: number): Promise<string[]> {
 async function notifyOffice(
   row: AnswerRow,
   rating: CheckinRating | "",
-  kind: "answer" | "changed" | "comment",
+  kind: "answer" | "comment",
   fields: { comment: string; reach: string; photos: number },
   origin: string
 ): Promise<void> {
@@ -507,12 +574,7 @@ async function notifyOffice(
   const bad = rating === "attention";
   const what = kind === "comment" ? "Check-in comment" : "Check-in answer";
   const subject = bad ? `⚠️ Needs attention — ${what}: ${name}` : `${what}: ${name} (${answer})`;
-  const first =
-    kind === "answer"
-      ? `${name} answered the check-in: ${answer}.`
-      : kind === "changed"
-        ? `${name} changed their check-in answer to ${answer}.`
-        : `${name} added to their check-in answer (${answer}).`;
+  const first = kind === "answer" ? `${name} answered the check-in: ${answer}.` : `${name} added a note to their check-in answer (${answer}).`;
   const lines = [
     first,
     "",
@@ -540,92 +602,174 @@ async function notifyOffice(
 
 const photoList = (value: string) => value.split(",").map(clean).filter(Boolean);
 
+/** All notes are kept on the row too (newest last, a blank line between), so every list that shows the comment shows them all. */
+const NOTES_MAX = 10_000;
+const NOTE_GAP = "\n\n";
+
 /**
- * Saves a new answer, only when it really changes: the old answer must still
- * be there, so two taps at once save (and email) it once. Moves the manager's
- * paper. true = it changed.
+ * Saves the first answer. Only while none is saved (answer = ''): two taps at
+ * once save (and email) one, and a later tap never changes it. Puts up the
+ * manager's paper. true = this tap was the one saved.
  */
-async function setRating(row: AnswerRow, id: number, rating: CheckinRating, origin: string): Promise<boolean> {
-  if (ratingOf(row.answer) === rating) return false;
+async function saveFirstAnswer(row: AnswerRow, id: number, rating: CheckinRating, origin: string): Promise<boolean> {
+  if (ratingOf(row.answer)) return false;
   const opened = (await viewReady()) ? ", opened_at = COALESCE(opened_at, now())" : "";
-  const changed = (await getSql().query(`UPDATE customer_checkins SET answer = $2, answered_at = now()${opened} WHERE id = $1 AND answer = $3 RETURNING id`, [id, rating, row.answer])) as unknown[];
-  if (changed.length === 0) return false;
-  // A changed answer takes the paper of the old one down.
-  if (rating !== "attention") await takeDownPapers(paperId(id, "attention"), `${CHANGED_ANSWER} to ${ratingText(rating)}`);
-  if (rating !== "ok") await takeDownPapers(paperId(id, "ok"), `${CHANGED_ANSWER} to ${ratingText(rating)}`);
+  const saved = (await getSql().query(`UPDATE customer_checkins SET answer = $2, answered_at = now()${opened} WHERE id = $1 AND answer = '' RETURNING id`, [id, rating])) as unknown[];
+  if (saved.length === 0) return false;
   if (rating === "attention") await pinForManager(row, id, "attention", clean(row.comment), origin);
   // The first time this check-in's OK paper goes up is the one time the customer gets the reply.
   if (rating === "ok" && (await pinForManager(row, id, "ok", clean(row.comment), origin))) await sendOkReply(row, id, origin);
-  await history(row.account_id, `Check-in: the customer ${row.answer ? "changed the answer to" : "answered"} ${ratingText(rating)}.`);
+  await history(row.account_id, `Check-in: the customer answered ${ratingText(rating)}.`);
   if (rating !== "great") {
     await flagRiskFromCheckins(row.account_id).catch((error) => console.error("[checkin] at risk:", error instanceof Error ? error.message : error));
   }
   return true;
 }
 
-/** One tap in the email. false when the check-in is not found. */
-export async function answerCheckin(id: number, rating: CheckinRating, origin: string): Promise<boolean> {
-  if (!(await checkinReady())) return false;
-  const row = await answerRow(id);
-  if (!row) return false;
-  if (await setRating(row, id, rating, origin)) {
-    await notifyOffice(row, rating, row.answer ? "changed" : "answer", { comment: clean(row.comment), reach: clean(row.reach), photos: photoList(row.photos).length }, origin);
+/** A tap this soon after the email went out is an email scanner (they open every link at once). */
+export const SCANNER_WINDOW_MS = 2 * 60_000;
+/** A tap this soon after another tap on the same check-in is a scanner going down the links. */
+export const BURST_MS = 10_000;
+
+/**
+ * What the page saw (app/checkin/[token]): the browser, and why the tap does
+ * not look like a person ("" = it does): the page's script did not run, or
+ * the button was on screen under a second.
+ */
+export type TapCheck = { agent: string; pageProblem: string };
+
+const secondsText = (ms: number) => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s === 1 ? "1 second" : `${s} seconds`;
+};
+
+/** Why this tap is a scanner's, or "" when it looks like a person. The page's check, 2 minutes after sending, seconds after another tap. */
+async function scannerReason(row: AnswerRow, id: number, tap: TapCheck): Promise<string> {
+  const now = Date.now();
+  const reasons: string[] = [];
+  if (tap.pageProblem) reasons.push(tap.pageProblem);
+  const sent = row.sent_at ? new Date(row.sent_at).getTime() : NaN;
+  if (Number.isFinite(sent) && now - sent < SCANNER_WINDOW_MS) reasons.push(`came ${secondsText(now - sent)} after the email was sent`);
+  if (await eventsReady()) {
+    const last = (await getSql()`
+      SELECT at FROM customer_checkin_events WHERE checkin_id = ${id} AND kind IN ('answer', 'repeat', 'stop', 'ignored') ORDER BY at DESC, id DESC LIMIT 1
+    `.catch(() => [])) as { at: string | Date }[];
+    const gap = last[0] ? now - new Date(last[0].at).getTime() : Infinity;
+    if (gap < BURST_MS) reasons.push(`came ${secondsText(gap)} after another tap`);
   }
+  return reasons.join("; ");
+}
+
+export type AnswerResult =
+  | { found: false }
+  /**
+   * first = this tap was saved; else the answer was already in and stays.
+   * ignored = it looked like an email scanner: kept in the history only.
+   * rating = the saved answer (or the one tapped, when nothing is saved).
+   */
+  | { found: true; first: boolean; ignored: boolean; rating: CheckinRating };
+
+/**
+ * One tap ("Tap to send"). Every tap is kept in the history; only the first
+ * one that looks like a person is the answer. A tap that looks like an email
+ * scanner (scannerReason) is kept as "ignored" and saves nothing.
+ */
+export async function answerCheckin(id: number, rating: CheckinRating, origin: string, tap: TapCheck = { agent: "", pageProblem: "" }): Promise<AnswerResult> {
+  if (!(await checkinReady())) return { found: false };
+  const row = await answerRow(id);
+  if (!row) return { found: false };
+  const agent = tap.agent;
+  const why = await scannerReason(row, id, tap);
+  if (why) {
+    await addEvent(id, row.account_id, { kind: "ignored", rating, note: why, agent, scanner: true });
+    return { found: true, first: false, ignored: true, rating: ratingOf(row.answer) || rating };
+  }
+  const first = await saveFirstAnswer(row, id, rating, origin);
+  await addEvent(id, row.account_id, { kind: first ? "answer" : "repeat", rating, agent });
+  if (first) {
+    await notifyOffice(row, rating, "answer", { comment: clean(row.comment), reach: clean(row.reach), photos: photoList(row.photos).length }, origin);
+    return { found: true, first: true, ignored: false, rating };
+  }
+  const saved = (await currentRating(id)) || ratingOf(row.answer) || rating;
+  if (saved !== rating) await history(row.account_id, `Check-in: the customer tapped ${ratingText(rating)} again; the answer stays ${ratingText(saved)} (the first answer is final).`);
+  return { found: true, first: false, ignored: false, rating: saved };
+}
+
+/**
+ * A note came in on a check-in with no answer saved, from the box shown
+ * after an ignored tap: a scanner does not type, so it was a person after
+ * all. Their tap becomes the answer. Only when that tap is in the history
+ * as ignored (before migration 093 there is no history: then it is trusted).
+ */
+async function countIgnoredTap(row: AnswerRow, id: number, shown: CheckinRating, origin: string, agent: string): Promise<boolean> {
+  if (ratingOf(row.answer)) return false;
+  if (await eventsReady()) {
+    const tapped = (await getSql()`SELECT 1 FROM customer_checkin_events WHERE checkin_id = ${id} AND kind = 'ignored' AND rating = ${shown} LIMIT 1`) as unknown[];
+    if (tapped.length === 0) return false;
+  }
+  if (!(await saveFirstAnswer(row, id, shown, origin))) return false;
+  await addEvent(id, row.account_id, { kind: "answer", rating: shown, note: "Counted: the customer wrote a note, so the tap was a person", agent });
+  await notifyOffice(row, shown, "answer", { comment: "", reach: "", photos: 0 }, origin);
   return true;
 }
 
 /**
- * The feedback box under the answer: maybe a changed answer, the comment,
- * "Best way to reach you" and photos. One email to the office: the answer
- * one when the answer changed, else the short comment one (none when nothing
- * new was sent).
+ * The feedback box under the answer: a note, "Best way to reach you" and
+ * photos. A note adds on to the ones before; nothing is ever replaced or
+ * deleted. One short email to the office when something new came in.
  */
 export async function submitFeedback(
   id: number,
-  input: { rating: CheckinRating | null; comment: string; reach: string; photos: string[] },
-  origin: string
+  input: { comment: string; reach: string; photos: string[]; /** The answer the box was shown for (an ignored tap counts once a note comes). */ shown?: CheckinRating | null },
+  origin: string,
+  agent = ""
 ): Promise<boolean> {
   if (!(await checkinReady())) return false;
-  const row = await answerRow(id);
-  if (!row) return false;
+  const found = await answerRow(id);
+  if (!found) return false;
   const text = input.comment.trim().slice(0, 2000);
-  // Changed to OK with a comment in the same send: one paper and one message, with the comment on them.
-  const rowForPin = input.rating === "ok" && text ? { ...row, comment: text } : row;
-  const changed = input.rating ? await setRating(rowForPin, id, input.rating, origin) : false;
-  const rating = changed && input.rating ? input.rating : ratingOf(row.answer);
+  // A real note (or photos) on a box shown after an ignored tap: that tap was a person.
+  const typed = text !== "" || input.photos.length > 0;
+  const counted = typed && input.shown ? await countIgnoredTap(found, id, input.shown, origin, agent) : false;
+  const row = counted ? ((await answerRow(id)) ?? found) : found;
+  const rating = ratingOf(row.answer);
   const viewed = await viewReady();
   const reach = viewed ? input.reach.trim().slice(0, 200) : "";
-  const allPhotos = [...photoList(row.photos), ...input.photos].slice(0, 6);
-  const added = (text !== "" && text !== clean(row.comment)) || (reach !== "" && reach !== clean(row.reach)) || input.photos.length > 0;
-  const note = text || clean(row.comment);
+  const before = clean(row.comment);
+  // The same note sent twice (a double tap) is kept once.
+  const lastNote = before.split(NOTE_GAP).pop() ?? "";
+  const newText = text !== "" && text !== lastNote ? text : "";
+  const allPhotos = [...photoList(row.photos), ...input.photos].slice(0, 12);
+  const added = newText !== "" || (reach !== "" && reach !== clean(row.reach)) || input.photos.length > 0;
+  if (!added) return true;
+
+  const note = (newText ? (before ? `${before}${NOTE_GAP}${newText}` : newText) : before).slice(-NOTES_MAX);
   const reachNow = reach || clean(row.reach);
-
-  if (added) {
-    const sql = getSql();
-    if (viewed) {
-      await sql`UPDATE customer_checkins SET comment = ${note}, photos = ${allPhotos.join(",")}, reach = ${reachNow}, commented_at = now() WHERE id = ${id}`;
-    } else {
-      await sql`UPDATE customer_checkins SET comment = ${note}, photos = ${allPhotos.join(",")} WHERE id = ${id}`;
-    }
-    const notes = [note ? `"${note}"` : "", allPhotos.length ? `${allPhotos.length} photo${allPhotos.length === 1 ? "" : "s"}` : "", reachNow ? `Reach: ${reachNow}` : ""]
-      .filter(Boolean)
-      .join(" · ");
-    if (rating === "attention") await updatePaperNotes(paperId(id, "attention"), notes);
-    if (rating === "ok") {
-      const wentUp = await pinForManager(row, id, "ok", note, origin);
-      await updatePaperNotes(paperId(id, "ok"), notes);
-      // Already up: the feedback is news. Tell the manager of the square it is in now.
-      if (!wentUp && !changed) await tellManager((await paperSquare(paperId(id, "ok"))) ?? "", row, id, "ok", notes, origin);
-    }
-    await history(
-      row.account_id,
-      `Check-in feedback: ${text}${input.photos.length ? ` (${input.photos.length} photo${input.photos.length === 1 ? "" : "s"})` : ""}${reach ? ` · Best way to reach: ${reach}` : ""}`
-    );
+  const sql = getSql();
+  if (viewed) {
+    await sql`UPDATE customer_checkins SET comment = ${note}, photos = ${allPhotos.join(",")}, reach = ${reachNow}, commented_at = now() WHERE id = ${id}`;
+  } else {
+    await sql`UPDATE customer_checkins SET comment = ${note}, photos = ${allPhotos.join(",")} WHERE id = ${id}`;
   }
+  await addEvent(id, row.account_id, { kind: "note", note: newText, reach, photos: input.photos, agent });
 
-  const fields = { comment: note, reach: reachNow, photos: allPhotos.length };
-  if (changed) await notifyOffice(row, rating, row.answer ? "changed" : "answer", fields, origin);
-  else if (added) await notifyOffice(row, rating, "comment", fields, origin);
+  // The paper shows the newest note (all of them are on the account page).
+  const newest = newText || lastNote;
+  const notes = [newest ? `"${newest}"` : "", allPhotos.length ? `${allPhotos.length} photo${allPhotos.length === 1 ? "" : "s"}` : "", reachNow ? `Reach: ${reachNow}` : ""]
+    .filter(Boolean)
+    .join(" · ");
+  if (rating === "attention") await updatePaperNotes(paperId(id, "attention"), notes);
+  if (rating === "ok") {
+    const wentUp = await pinForManager(row, id, "ok", newest, origin);
+    await updatePaperNotes(paperId(id, "ok"), notes);
+    // Already up: the feedback is news. Tell the manager of the square it is in now.
+    if (!wentUp) await tellManager((await paperSquare(paperId(id, "ok"))) ?? "", row, id, "ok", notes, origin);
+  }
+  await history(
+    row.account_id,
+    `Check-in feedback: ${newText}${input.photos.length ? ` (${input.photos.length} photo${input.photos.length === 1 ? "" : "s"})` : ""}${reach ? ` · Best way to reach: ${reach}` : ""}`
+  );
+  await notifyOffice(row, rating, "comment", { comment: newest, reach: reachNow, photos: allPhotos.length }, origin);
   return true;
 }
 
@@ -641,15 +785,24 @@ export async function currentRating(id: number): Promise<CheckinRating | ""> {
   return rows[0] ? ratingOf(rows[0].answer) : "";
 }
 
-/** "Stop these emails": this account is skipped from now on. */
-export async function optOutCheckin(id: number): Promise<boolean> {
-  if (!(await checkinReady())) return false;
-  const rows = (await getSql()`SELECT account_id, sent_to FROM customer_checkins WHERE id = ${id}`) as { account_id: string; sent_to: string }[];
-  const row = rows[0];
-  if (!row) return false;
+/**
+ * "Stop these emails": this account is skipped from now on. "ignored" = it
+ * looked like an email scanner (the same rules as an answer): kept in the
+ * history, the account is NOT stopped.
+ */
+export async function optOutCheckin(id: number, tap: TapCheck = { agent: "", pageProblem: "" }): Promise<"stopped" | "ignored" | "gone"> {
+  if (!(await checkinReady())) return "gone";
+  const row = await answerRow(id);
+  if (!row) return "gone";
+  const why = await scannerReason(row, id, tap);
+  if (why) {
+    await addEvent(id, row.account_id, { kind: "ignored", note: `Stop these emails: ${why}`, agent: tap.agent, scanner: true });
+    return "ignored";
+  }
   await getSql()`INSERT INTO customer_checkin_optouts (account_id, email) VALUES (${row.account_id}, ${row.sent_to}) ON CONFLICT DO NOTHING`;
   await history(row.account_id, "The customer stopped the check-in emails.");
-  return true;
+  await addEvent(id, row.account_id, { kind: "stop", agent: tap.agent });
+  return "stopped";
 }
 
 /** The account the check-in belongs to (where its photos are stored). */
@@ -738,7 +891,7 @@ export async function accountCheckins(accountId: string): Promise<{ ready: boole
     getSql()`SELECT 1 FROM customer_checkin_optouts WHERE account_id = ${accountId}` as unknown as Promise<unknown[]>,
   ]);
   const made = await complaintsFromCheckins(accountId).catch(() => new Map<number, string>());
-  return { ready: true, optedOut: out.length > 0, rows: rows.map(toRow).map((row) => ({ ...row, complaintKey: made.get(row.id) ?? "" })) };
+  return { ready: true, optedOut: out.length > 0, rows: await withEvents(rows.map(toRow).map((row) => ({ ...row, complaintKey: made.get(row.id) ?? "" }))) };
 }
 
 /* ---------- "Turn into complaint" ---------- */
@@ -921,7 +1074,7 @@ export async function batchDetail(id: number): Promise<{ batch: CheckinBatch; ro
     sql.query(`SELECT ${await rowSelect()} ${ROW_FROM} WHERE k.batch_id = $1 ORDER BY a.account_name, k.id`, [id]) as unknown as Promise<DbRow[]>,
     sql`SELECT skipped FROM checkin_batches WHERE id = ${id}` as unknown as Promise<{ skipped: CheckinSkip[] }[]>,
   ]);
-  return { batch: toBatch(batches[0]), rows: rows.map(toRow), skipped: skippedRows[0]?.skipped ?? [] };
+  return { batch: toBatch(batches[0]), rows: await withEvents(rows.map(toRow)), skipped: skippedRows[0]?.skipped ?? [] };
 }
 
 /* ---------- saved lists ---------- */

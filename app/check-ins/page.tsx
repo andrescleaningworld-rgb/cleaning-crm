@@ -1002,7 +1002,7 @@ function HistoryTab() {
                   {row.sentTo ? ` · to ${row.sentTo}` : ""}
                   {row.error ? ` · ${row.error}` : ""}
                 </p>
-                {row.status === "sent" ? <CheckinAnswer row={row} /> : null}
+                {row.status === "sent" ? <CheckinAnswer row={row} history /> : null}
                 {row.hasCopy ? (
                   <div style={{ marginTop: 6 }}>
                     <BigButton kind="quiet" onClick={() => setViewId(row.id)}>

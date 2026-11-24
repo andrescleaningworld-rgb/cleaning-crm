@@ -200,7 +200,13 @@ export const CHECKIN_PAGE = {
     ok: "Just a few words is plenty. Photos help too.",
     attention: "This comes straight to your account manager, and we'll make it right. Photos help too.",
   } as Record<CheckinRating, string>,
-  change: "Change your answer",
+  /** The page a link in the email opens: nothing is saved until the customer taps. */
+  confirmTitle: "Your answer:",
+  confirmButton: "Tap to send",
+  confirmOther: "Meant another one?",
+  /** A tap after the answer was saved: the first answer is final. */
+  already: "Thanks! We already got your answer:",
+  alreadyMore: "Want to add anything? It goes straight to your account manager.",
   reach: "Best way to reach you (optional)",
   reachHint: "Phone or email",
   better: "What would make it better?",
@@ -211,6 +217,8 @@ export const CHECKIN_PAGE = {
   thanksNoted: "Thanks! We got your answer.",
   stopTitle: "Stop these emails?",
   stopButton: "Yes, stop them",
+  /** "Stop" tapped too soon (a scanner's look): nothing saved, the button again. */
+  stopAgain: "Almost there. Please wait a moment, then tap once more.",
   stopped: "All set. You won't get these emails anymore.",
   gone: "Oops, this link doesn't work anymore.",
   goneText: "Links in these emails work for 30 days. Give us a call at 201-487-1313 any time.",
@@ -245,7 +253,35 @@ export type CheckinRow = {
   hasCopy: boolean;
   /** The complaint made from this check-in with "Turn into complaint", or "" (account page only). */
   complaintKey?: string;
+  /** Every tap and note, oldest first (migration 093; empty before it). */
+  events?: CheckinEvent[];
 };
+
+/**
+ * One thing the customer did on a check-in (migration 093):
+ *   answer   the first answer: the one that counts
+ *   repeat   a tap after that: kept, never replaces the first answer
+ *   note     the feedback box (note, best way to reach them, photos)
+ *   stop     "Stop these emails"
+ *   ignored  a tap or "Stop" that looked like an email scanner (note = why): never the answer
+ *   earlier  an Activity Log line from before the history was kept
+ *   staff    a change staff made (note = what)
+ */
+export type CheckinEvent = {
+  at: string;
+  kind: "answer" | "repeat" | "note" | "stop" | "ignored" | "earlier" | "staff";
+  rating: CheckinRating | "";
+  note: string;
+  reach: string;
+  photos: number;
+  /** An email scanner, not a person: marked so, or the browser said it is a bot (or said nothing). */
+  scanner: boolean;
+};
+
+/** A browser name that is an email security scanner or a bot, not a person. */
+export function looksLikeScanner(agent: string): boolean {
+  return agent.trim() === "" || /bot\b|bot\/|crawler|spider|scanner|safelinks|proofpoint|mimecast|barracuda|headless|python|curl|wget|java\/|go-http|okhttp/i.test(agent);
+}
 
 /** The line a complaint made from a check-in carries in its Notes; it is how the two are matched (no extra column). */
 export const checkinComplaintMarker = (checkinId: number) => `From customer check-in #${checkinId}`;
