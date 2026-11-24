@@ -10,6 +10,9 @@
 //   1. a TV link pasted into the address bar (?k=...)
 //   2. staff looking at TV mode from the board's tabs (logged in)
 //   3. this TV's own secret, kept in this browser, once the owner connected it
+// Once 3 says "connected", the page opens again as 1, with that secret as its
+// key: on the office Fire Stick only a board opened from its address kept
+// asking for fresh data. A TV whose link is turned off goes back to a code.
 
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,6 +22,35 @@ import { TvSafety } from "./tv-safety";
 import styles from "./tv.module.css";
 
 const SECRET_KEY = "cwTvSecret";
+
+const MOVED_KEY = "cwTvMovedAt";
+/** At most one move to the address with the key in this long, so two pages can never send the TV back and forth. */
+const MOVE_GAP_MS = 30_000;
+
+/**
+ * This page again, with the TV's key in the address (?k=), keeping anything else there (?slideshow=now).
+ * False when it moved there moments ago already (or the browser keeps nothing): the board opens here instead.
+ */
+function openWithKey(key: string): boolean {
+  try {
+    const last = Number(window.sessionStorage.getItem(MOVED_KEY)) || 0;
+    if (Date.now() - last < MOVE_GAP_MS) return false;
+    window.sessionStorage.setItem(MOVED_KEY, String(Date.now()));
+    const url = new URL(window.location.href);
+    url.searchParams.set("k", key);
+    window.location.replace(url.toString());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** This page again without a key, so the TV asks for a code (its link was turned off). */
+function openWithoutKey(): void {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("k");
+  window.location.replace(url.toString());
+}
 /** The board's blue (tv.module.css .tv), behind everything while TV mode is up. */
 const TV_BLUE = "#0c447c";
 /** Resizes are acted on once they have stopped for this long, and only when the height moved more than this. */
@@ -121,7 +153,13 @@ export default function TvGate({ token }: { token: string }) {
         body = await send();
       }
       if (body.ready !== true) return setMode({ kind: "problem", text: "The Pin Board is not turned on here yet." });
-      if (body.state === "connected") return setMode({ kind: "board", token: secret.current });
+      // Connected: the board opens with this TV's key in the address, the same way a TV link opens it.
+      // On the office Fire Stick a board that started here, after the code screen, got its data once and
+      // then stopped asking for more until the page was reloaded; one opened from its address keeps going.
+      if (body.state === "connected") {
+        if (!openWithKey(secret.current)) setMode({ kind: "board", token: secret.current });
+        return;
+      }
       if (body.state === "busy") return setMode({ kind: "problem", text: "Too many TVs are waiting for a code. Try again in a few minutes." });
       if (body.state === "waiting" && body.code) setMode({ kind: "code", code: body.code, secondsLeft: body.secondsLeft ?? 0 });
     } catch {
@@ -159,6 +197,15 @@ export default function TvGate({ token }: { token: string }) {
     };
   }, [token, ask]);
 
+  // This TV's link was turned off in Settings. With its key in the address: open the page without it, so
+  // it asks for a code (its old key is renewed there). The same function every time, so the board's own
+  // refresh is never set up again by a re-draw of this page.
+  const whenTurnedOff = useCallback(() => {
+    if (token) return openWithoutKey();
+    setMode({ kind: "checking" });
+    void ask();
+  }, [token, ask]);
+
   // While the code is showing (or did not load), keep asking.
   const waiting = mode.kind === "code" || mode.kind === "problem";
   useEffect(() => {
@@ -181,22 +228,11 @@ export default function TvGate({ token }: { token: string }) {
   }, [code]);
 
   if (mode.kind === "board") {
-    // A TV connected with a code goes back to showing a code when it is disconnected.
-    const mine = !token && mode.token !== "";
     // The safety net: a board that fails to draw says so and tries again by itself, never a black screen.
+    // A TV whose link is turned off goes back to showing a code (staff looking at TV mode do not).
     return (
       <TvSafety>
-        <TvClient
-          token={mode.token}
-          onDenied={
-            mine
-              ? () => {
-                  setMode({ kind: "checking" });
-                  void ask();
-                }
-              : undefined
-          }
-        />
+        <TvClient token={mode.token} onDenied={mode.token ? whenTurnedOff : undefined} />
       </TvSafety>
     );
   }

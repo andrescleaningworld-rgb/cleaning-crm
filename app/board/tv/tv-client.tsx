@@ -32,23 +32,20 @@
 // and one too old for newer CSS units. Nothing is ever scrolled or cut off:
 // a long name ends in "…".
 //
-// Full screen (no browser tabs or address bar) starts with the click on the
-// board's "TV Mode (Full Screen)" button. When it is not on (Esc was pressed,
-// or the TV opened its own link), moving the mouse or pressing a remote button
-// shows a small "Full screen" button in the bottom-left corner. OK on the
-// remote (Enter) asks for full screen right in the key press. A TV that had
-// full screen on before (kept in its browser) shows a big "Tap for full screen"
-// after a reload, since a browser needs a press for it; it stays until full
-// screen is on. A TV whose browser refuses full screen, or cannot do it, is
-// never offered it again (kept in its browser): no button, no reminder.
+// No full-screen button or reminder of its own: the board fills the visible
+// screen, and on the office Fire Stick the browser never turned full screen
+// on from a remote press. Full screen still starts with the click on the
+// board's "TV Mode (Full Screen)" button, on a computer.
+//
+// Nothing floats over the squares: the few lines that can show (keep-awake,
+// "Exit TV mode" for staff) sit in the screen's outer margin, under the board.
 //
 // The slideshow can be tried at once by adding ?slideshow=now to the TV's
 // address: the show starts as soon as the board has its photos.
-// The mouse pointer, the small button and "Exit TV mode" (for staff who came
-// from the board) all go away after a few seconds without the mouse moving.
-// The page asks for fresh data every minute (data only, never a page reload,
-// so full screen stays on) and keeps the last board when a refresh fails
-// ("Reconnecting…" in the top strip).
+// The mouse pointer and "Exit TV mode" (for staff who came from the board)
+// go away after a few seconds without the mouse moving.
+// The page asks for fresh data every minute (data only, never a page reload)
+// and keeps the last board when a refresh fails ("Reconnecting…" in the top strip).
 
 import Image from "next/image";
 import Link from "next/link";
@@ -61,7 +58,7 @@ import PizzaTracker from "@/app/components/pizza-tracker";
 import ReadyBadge from "@/app/components/ready-badge";
 import SmsCreditBanner from "@/app/components/sms-credit-banner";
 import type { SmsCredit } from "@/lib/pg/sms-credit";
-import { FULL_SCREEN_EVENTS, exitFullScreen, fullScreenSupported, inFullScreen } from "../full-screen";
+import { exitFullScreen } from "../full-screen";
 import styles from "./tv.module.css";
 
 type TvCleaning = { accountName: string; sub: string; status: CleaningStatus };
@@ -94,12 +91,6 @@ const ROTATE_MS = 8_000;
 const SHIFT_MS = 10 * 60_000;
 /** The mouse pointer and the buttons go away after this long without the mouse moving. */
 const IDLE_MS = 4_000;
-/** Kept in this browser once full screen was turned on here, so a reload asks for it again. */
-const FULL_KEY = "cwTvFullScreen";
-/** Kept in this browser once full screen failed here: it is not offered on this TV again. */
-const FULL_OFF_KEY = "cwTvFullScreenOff";
-/** How long after the browser says yes full screen must really be on. */
-const FULL_CONFIRM_MS = 1_000;
 /** A resize is acted on once things have been still this long (Silk's toolbar sends a burst of them). */
 const RESIZE_WAIT_MS = 150;
 /** A size change this small or smaller lays nothing out again. */
@@ -551,13 +542,6 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
   const stage = useRef<HTMLDivElement>(null);
   // What the middle shows: "board", "cleanings" (today's cleanings), or the key of the square whose full list is open.
   const [view, setView] = useState("board");
-  // Full screen: on or not, and whether this browser can do it when asked.
-  const [full, setFull] = useState(true);
-  const [canFull, setCanFull] = useState(false);
-  /** Full screen did not work on this TV once: never offered here again (kept in this browser). */
-  const [fullBlocked, setFullBlocked] = useState(false);
-  /** This TV was put in full screen before (kept in this browser): after a reload, ask for the one tap again. */
-  const [wantsFull, setWantsFull] = useState(false);
   const [idle, setIdle] = useState(false);
 
   const load = useCallback(async () => {
@@ -783,101 +767,6 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     };
   }, []);
 
-  // Is full screen on? Only the browser's own full-screen state counts, and it is read only when full
-  // screen starts or ends (a button press, or Esc / Back). Never on a resize: on a Fire Stick, Silk's
-  // toolbar hiding made the window as tall as the screen, which read as "full screen", hid the
-  // reminder, brought the toolbar back, and so on about once a second, with the screen going black
-  // each time. Nothing here ever turns full screen on or off by itself.
-  useEffect(() => {
-    let last: boolean | null = null;
-    const check = () => {
-      const now = inFullScreen();
-      // The same answer again (some browsers send the event twice): nothing changes, nothing re-draws.
-      if (now === last) return;
-      last = now;
-      setFull(now);
-    };
-    check();
-    setCanFull(fullScreenSupported());
-    FULL_SCREEN_EVENTS.forEach((name) => document.addEventListener(name, check));
-    return () => FULL_SCREEN_EVENTS.forEach((name) => document.removeEventListener(name, check));
-  }, []);
-
-  // Full screen was turned on here before: after a reload the browser needs one more tap (it never allows it without one).
-  // Or this TV cannot do full screen at all: then it is never offered here again.
-  useEffect(() => {
-    try {
-      setWantsFull(window.localStorage.getItem(FULL_KEY) === "1");
-      setFullBlocked(window.localStorage.getItem(FULL_OFF_KEY) === "1");
-    } catch {
-      // A browser that keeps nothing: no reminder, the small button is still there.
-    }
-  }, []);
-
-  /** Full screen does not work on this TV: no button, no reminder, no hint, from now on (kept in this browser). */
-  const giveUpFull = useCallback(() => {
-    try {
-      window.localStorage.setItem(FULL_OFF_KEY, "1");
-      window.localStorage.removeItem(FULL_KEY);
-    } catch {
-      // A browser that keeps nothing: hidden until the next reload.
-    }
-    setFullBlocked(true);
-    setWantsFull(false);
-  }, []);
-
-  /**
-   * Asks for full screen straight from the press (OK on the remote, Enter, a click): a browser only
-   * allows it inside one, so nothing is awaited first. A refusal, or full screen not there a second
-   * later, means this TV cannot do it: it is not offered again.
-   */
-  const askFull = useCallback(() => {
-    if (inFullScreen()) return;
-    const element = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> | void };
-    let asked: Promise<void> | void;
-    try {
-      if (typeof element.requestFullscreen === "function") asked = element.requestFullscreen();
-      else if (typeof element.webkitRequestFullscreen === "function") asked = element.webkitRequestFullscreen();
-      else return giveUpFull();
-    } catch {
-      return giveUpFull();
-    }
-    Promise.resolve(asked).then(
-      () =>
-        window.setTimeout(() => {
-          if (!inFullScreen()) return giveUpFull();
-          // Remembered on this TV, so the next reload offers it again with one press.
-          try {
-            window.localStorage.setItem(FULL_KEY, "1");
-          } catch {
-            // A browser that keeps nothing: it just is not offered after a reload.
-          }
-          setWantsFull(true);
-        }, FULL_CONFIRM_MS),
-      giveUpFull
-    );
-  }, [giveUpFull]);
-
-  // OK on the remote (Enter) asks for full screen right in the key press, while it is offered. Not when
-  // the remote is on something else of the board (a square opens its list with OK), and not in a slideshow
-  // (that press only ends the show).
-  const offerFull = !full && canFull && !fullBlocked;
-  useEffect(() => {
-    if (!offerFull) return;
-    const onKey = (event: KeyboardEvent) => {
-      const ok = event.key === "Enter" || event.keyCode === 13 || event.keyCode === 23;
-      if (!ok || showRef.current !== null) return;
-      const on = document.activeElement;
-      const free = !on || on === document.body || on === document.documentElement || (on instanceof HTMLElement && on.dataset.tvFull !== undefined);
-      if (!free) return;
-      // The button that has the focus would also be "clicked" by this key: it is not, the press is used here.
-      event.preventDefault();
-      askFull();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [offerFull, askFull]);
-
   // No mouse movement for a few seconds: the pointer and the buttons go away. Any movement brings them back.
   useEffect(() => {
     let timer = 0;
@@ -898,7 +787,7 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
     window.addEventListener("mousemove", moved);
     window.addEventListener("mousedown", wake);
     window.addEventListener("touchstart", wake);
-    // A TV remote's buttons: the Full screen button comes back too.
+    // A TV remote's buttons count as moving too.
     window.addEventListener("keydown", wake);
     return () => {
       window.clearTimeout(timer);
@@ -1158,16 +1047,6 @@ export default function TvClient({ token, onDenied }: { token: string; onDenied?
           <p className={styles.ruleText}>{MOTTO.en}</p>
         </footer>
       </div>
-      {offerFull && wantsFull ? (
-        // Full screen was on before this reload: one tap, or OK on the remote, puts it back. Gone once it is on.
-        <button type="button" className={styles.fullPrompt} autoFocus data-tv-full onClick={askFull}>
-          Tap for full screen
-        </button>
-      ) : offerFull && !idle ? (
-        <button type="button" className={styles.fullButton} data-tv-full onClick={askFull}>
-          Full screen
-        </button>
-      ) : null}
       {exit}
     </div>
   );

@@ -903,61 +903,13 @@
   color: #ffffff;
 }
 
-/* ---------- full screen: the small button, and the reminder after a reload ---------- */
-
-/* The small one: bottom left, inside the TV's safe margin (Exit TV mode is bottom right). Hidden while the board sits still. */
-.fullButton {
-  position: fixed;
-  left: 4.5%;
-  bottom: 4.5%;
-  z-index: 210;
-  padding: 4px 12px;
-  border: 0;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.9);
-  color: #0c447c;
-  font-family: inherit;
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1.2;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-/* After a reload on a TV that had full screen on: one big tap to put it back. Stays until it is on. */
-.fullPrompt {
-  position: fixed;
-  left: 50%;
-  bottom: calc(var(--u, 1vh) * 14);
-  z-index: 210;
-  transform: translateX(-50%);
-  padding: calc(var(--u, 1vh) * 2.4) calc(var(--u, 1vh) * 6);
-  border: 0;
-  border-radius: calc(var(--u, 1vh) * 2.4);
-  background: #ffffff;
-  color: #0c447c;
-  font-family: inherit;
-  font-size: calc(var(--u, 1vh) * 5);
-  font-size: clamp(24px, calc(var(--u, 1vh) * 5), 80px);
-  font-weight: 800;
-  line-height: 1.1;
-  white-space: nowrap;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.55);
-  cursor: pointer;
-}
-
-.fullPrompt:focus,
-.fullButton:focus {
-  outline: 4px solid #ffe27a;
-  outline-offset: 3px;
-}
-
 /* ---------- the one link: staff looking at TV mode from the board ---------- */
 
+/* In the screen's outer margin, under the board (the picture starts 4% in): it never covers a square. */
 .exit {
   position: fixed;
-  right: 4.5%;
-  bottom: 4.5%;
+  right: 4%;
+  bottom: 0.6%;
   z-index: 210;
   padding: 2px 10px;
   border-radius: 8px;
