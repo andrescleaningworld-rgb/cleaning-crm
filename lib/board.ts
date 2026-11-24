@@ -127,11 +127,33 @@ export function statusLine(status: PinStatus): string {
 /** The shared boxes a plain sticky note can be added into. */
 export const NOTE_BOXES = ["account", "complaint", "supply"] as const;
 
+/**
+ * The office's date and time now, as "2026-11-24 10:30" (New York, 24-hour).
+ * Built from plain en-US parts, the way the rest of the app reads office time:
+ * some TV browsers (Fire Stick Silk) cannot be trusted with other locales.
+ * "" when this browser cannot tell, so a to-do is then simply not shown late.
+ */
+function officeNow(now: Date): string {
+  try {
+    const parts: Record<string, string> = {};
+    for (const part of new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(now)) {
+      parts[part.type] = part.value;
+    }
+    const text = `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
+    return /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(text) ? text : "";
+  } catch {
+    return "";
+  }
+}
+
 /** Past its due date and not done: the red corner. */
 export function isOverdue(paper: Pick<Paper, "dueDate" | "recordDone" | "dueTime">, now = new Date()): boolean {
   if (!paper.dueDate || paper.recordDone) return false;
   // With a time: late once that time has passed in the office ("2026-11-24 10:30").
-  if (paper.dueTime) return now.toLocaleString("sv-SE", { timeZone: "America/New_York" }).slice(0, 16) > `${paper.dueDate} ${paper.dueTime}`;
+  if (paper.dueTime) {
+    const office = officeNow(now);
+    return office !== "" && office > `${paper.dueDate} ${paper.dueTime}`;
+  }
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
   return paper.dueDate < today;
 }

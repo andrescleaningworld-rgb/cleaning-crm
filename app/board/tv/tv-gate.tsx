@@ -16,6 +16,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { showTvCode } from "@/lib/board";
 import { exitFullScreen } from "../full-screen";
 import TvClient from "./tv-client";
+import { TvSafety } from "./tv-safety";
 import styles from "./tv.module.css";
 
 const SECRET_KEY = "cwTvSecret";
@@ -146,18 +147,21 @@ export default function TvGate({ token }: { token: string }) {
   if (mode.kind === "board") {
     // A TV connected with a code goes back to showing a code when it is disconnected.
     const mine = !token && mode.token !== "";
+    // The safety net: a board that fails to draw says so and tries again by itself, never a black screen.
     return (
-      <TvClient
-        token={mode.token}
-        onDenied={
-          mine
-            ? () => {
-                setMode({ kind: "checking" });
-                void ask();
-              }
-            : undefined
-        }
-      />
+      <TvSafety>
+        <TvClient
+          token={mode.token}
+          onDenied={
+            mine
+              ? () => {
+                  setMode({ kind: "checking" });
+                  void ask();
+                }
+              : undefined
+          }
+        />
+      </TvSafety>
     );
   }
 
