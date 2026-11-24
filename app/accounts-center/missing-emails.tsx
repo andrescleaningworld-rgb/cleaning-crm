@@ -61,7 +61,8 @@ export default function MissingEmails() {
       const res = await fetch("/api/admin/account-emails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId: account.accountId, email }),
+        // A billing inbox on the account: the email is added as a contact, the billing one stays.
+        body: JSON.stringify({ accountId: account.accountId, email, asContact: Boolean(account.billingInbox) }),
       });
       const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!res.ok || !data.success) throw new Error(data.error || "Failed to save the email.");
@@ -148,7 +149,7 @@ export default function MissingEmails() {
                     </p>
                     {account.billingInbox ? (
                       <p className="ui-card-text">
-                        Skipped: billing inbox only ({account.billingInbox}). Check-ins need a real person&apos;s email. Saving one here replaces it on the account.
+                        Skipped: billing inbox only ({account.billingInbox}). Check-ins need a real person&apos;s email. Saving one here adds it as a contact; the billing email stays on the account for invoices.
                       </p>
                     ) : null}
                     <form

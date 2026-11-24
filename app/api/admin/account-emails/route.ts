@@ -3,6 +3,8 @@ import { isPostgres } from "@/lib/dataSource";
 import { getSql } from "@/lib/db";
 import { updateAccountFieldsDirect } from "@/lib/data/accounts";
 import { pickCheckinEmail } from "@/lib/customerCheckin";
+import { getAdminIdentity } from "@/lib/adminSession";
+import { saveContact } from "@/lib/pg/account-contacts";
 
 // Customer emails, for the new portal's email + password login. Staff only
 // (proxy.ts).
@@ -64,7 +66,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Accounts are still in Google Sheets here. Type the email on the account's Edit page." }, { status: 409 });
   }
   // onlyActive: the "Find emails in Markate" save fills Active accounts only (it is refused for any other status).
-  let body: { accountId?: unknown; email?: unknown; onlyActive?: unknown };
+  // asContact: the account's email is a billing inbox. The new email is added
+  // as a contact (check-ins go to it) and the billing email stays on the
+  // account, for invoices.
+  let body: { accountId?: unknown; email?: unknown; onlyActive?: unknown; asContact?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -79,6 +84,19 @@ export async function POST(request: NextRequest) {
     if (body.onlyActive === true) {
       const rows = (await getSql()`SELECT status_key FROM accounts WHERE id = ${accountId} LIMIT 1`) as { status_key: string }[];
       if (rows[0]?.status_key !== "active") return NextResponse.json({ error: "This account is not Active, so its email was not filled from Markate." }, { status: 409 });
+    }
+    if (body.asContact === true) {
+      if (!email) return NextResponse.json({ error: "Type the customer's email." }, { status: 400 });
+      const identity = await getAdminIdentity(request);
+      // Not the main contact: the account's email (the billing inbox) does not change.
+      await saveContact(
+        accountId,
+        null,
+        { name: "", role: "Site contact", phone: "", email, notes: "Added on Missing emails: the account's email is a billing inbox, so check-ins come here." },
+        identity?.name || "Office",
+        false
+      );
+      return NextResponse.json({ success: true, email, asContact: true });
     }
     // The same save the account's Edit page uses for this field.
     await updateAccountFieldsDirect(accountId, { email });

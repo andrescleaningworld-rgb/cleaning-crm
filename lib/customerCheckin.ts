@@ -80,6 +80,17 @@ export const CHECKIN_TEST_EMAIL = "crm@cleaningworldinc.com";
 
 export const CHECKIN_LINE =
   "Hi there! We really care about keeping your space just the way you like it. How's the cleaning been lately? Your answer comes straight to me, so if anything's not up to your expectations, I'll make it right.";
+/**
+ * The body, signed with the account manager's first name ("… I'll make it
+ * right. – Andrés"), or "– Cleaning World Team" when the account has none.
+ * The manager is the one the sign-off below the buttons names.
+ */
+export function checkinBodyLine(managerName: string): string {
+  // "Drew/Greg" or "Greg , Andres" (two names typed on one account): the first one.
+  const first = managerName.trim().split(/[\s,/&]+/)[0] ?? "";
+  return `${CHECKIN_LINE} – ${first || "Cleaning World Team"}`;
+}
+
 /** The email's big title. */
 export const CHECKIN_TITLE = "How's it going?";
 
@@ -125,7 +136,7 @@ export function checkinEmail(input: CheckinEmailInput): { subject: string; html:
     welcomeTopHtml(CHECKIN_TITLE) +
     `<div style="background:#ffffff;padding:18px 16px 8px;">` +
     `<p style="margin:0 0 6px;font-size:17px;font-weight:700;color:${C.label};">${esc(input.customerName)}</p>` +
-    `<p style="margin:0 0 18px;font-size:16px;line-height:1.55;color:${C.text};">${esc(CHECKIN_LINE)}</p>` +
+    `<p style="margin:0 0 18px;font-size:16px;line-height:1.55;color:${C.text};">${esc(checkinBodyLine(input.managerName))}</p>` +
     buttons +
     `<p style="margin:6px 0 0;font-size:13px;color:${C.muted};">${esc(CHECKIN_SMALL)}</p>` +
     `</div>` +
@@ -141,7 +152,7 @@ export function checkinEmail(input: CheckinEmailInput): { subject: string; html:
   const text = [
     CHECKIN_TITLE,
     "",
-    CHECKIN_LINE,
+    checkinBodyLine(input.managerName),
     "",
     ...CHECKIN_RATINGS.map((r) => `${r.customer}: ${input.links[r.value]}`),
     "",
