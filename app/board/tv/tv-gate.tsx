@@ -1,10 +1,10 @@
 "use client";
 
 // What a TV shows at /tv (or /board/tv): the board when it is allowed to, and
-// otherwise a big 6-digit code and a QR code. The owner taps "Show on TV" on
-// the board, types the code (or scans the QR), and this TV switches to the
-// board. The TV remembers it is connected until it is disconnected in
-// Settings -> Team.
+// otherwise a big code like K7P-3QX and a QR code. The owner types the code in
+// Settings -> TV links (or Show on TV on the board, or scans the QR), and this
+// TV switches to the board. The TV remembers it is connected until that link
+// is turned off.
 //
 // Three ways in, tried in this order:
 //   1. a TV link pasted into the address bar (?k=...)
@@ -13,6 +13,7 @@
 
 import QRCode from "qrcode";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { showTvCode } from "@/lib/board";
 import { exitFullScreen } from "../full-screen";
 import TvClient from "./tv-client";
 import styles from "./tv.module.css";
@@ -91,6 +92,17 @@ export default function TvGate({ token }: { token: string }) {
       setMode((current) => (current.kind === "checking" ? { kind: "problem", text: "The code did not load. It will try again." } : current));
     }
   }, []);
+
+  // A TV link in the address is kept as this TV's secret, so next time just /tv opens the board.
+  // It stays a normal TV link: Turn off in Settings still logs this TV out, and it shows a code again.
+  useEffect(() => {
+    if (!token || token.length < 20 || token.length > 100) return;
+    try {
+      window.localStorage.setItem(SECRET_KEY, token);
+    } catch {
+      // A browser that keeps nothing: the link in the address still works this time.
+    }
+  }, [token]);
 
   // No TV link in the address: is someone on staff logged in here? Otherwise this TV's own secret.
   useEffect(() => {
@@ -173,9 +185,9 @@ export default function TvGate({ token }: { token: string }) {
       <h1 className={styles.pairTitle}>Show the board on this TV</h1>
       <div className={styles.pairRow}>
         <div className={styles.pairSide}>
-          <p className={styles.pairStep}>On your phone, open the Board, tap Show on TV, and type:</p>
+          <p className={styles.pairStep}>Go to Settings → TV links on your computer and enter this code.</p>
           <p className={styles.pairCode} aria-label={`Code ${mode.code.split("").join(" ")}`} data-tv-code={mode.code}>
-            {mode.code.slice(0, 3)} {mode.code.slice(3)}
+            {showTvCode(mode.code)}
           </p>
           <p className={styles.pairNote}>
             This code works for {minutes} more minute{minutes === 1 ? "" : "s"}. A new one shows by itself after that.

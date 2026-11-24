@@ -182,6 +182,29 @@ export type BoardData = {
   smsCredit?: { quota: number; at: string; level: "ok" | "low" | "zero" } | null;
 };
 
+/**
+ * The code a waiting TV shows: 6 letters and numbers, read off the TV and typed
+ * in Settings -> TV links. No 0/O, 1/I/L (they look alike on a TV), so every
+ * character can be told apart from across the room.
+ */
+export const TV_CODE_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+export const TV_CODE_LENGTH = 6;
+
+/** What was typed, as a code: capitals, spaces and dashes dropped. "k7p-3qx" -> "K7P3QX". */
+export function cleanTvCode(typed: string): string {
+  return typed.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, TV_CODE_LENGTH);
+}
+
+/** True when it can be a TV code at all. */
+export function isTvCode(code: string): boolean {
+  return code.length === TV_CODE_LENGTH && [...code].every((char) => TV_CODE_CHARS.includes(char));
+}
+
+/** "K7P3QX" -> "K7P-3QX", as the TV shows it. */
+export function showTvCode(code: string): string {
+  return code.length > 3 ? `${code.slice(0, 3)}-${code.slice(3)}` : code;
+}
+
 export type TvLink = { id: string; label: string; createdBy: string; createdAt: string; lastSeenAt: string; revokedAt: string; revokedBy: string };
 
 const DAY_MS = 24 * 60 * 60 * 1000;

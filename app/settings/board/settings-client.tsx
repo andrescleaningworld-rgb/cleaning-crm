@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { BigButton, CHEER, Card, ConfirmSheet, EmptyState, ErrorBox, Field, Screen, SkeletonList, friendlyDate, showToast } from "@/app/ui";
-import type { BoardSettings, TvLink } from "@/lib/board";
+import { cleanTvCode, isTvCode, showTvCode, type BoardSettings, type TvLink } from "@/lib/board";
 import { DEFAULT_PIN_TYPES, NOT_AVAILABLE_YET, PIN_TYPES, readPinTypes, type PinType, type PinTypes } from "@/lib/boardPins";
 import { postBoard } from "../../board/board-client";
 import TestPushCard from "./test-push";
@@ -19,6 +19,10 @@ export default function BoardSettingsClient() {
   /** False until this database has the column the switches are saved in. */
   const [pinReady, setPinReady] = useState(false);
   const [label, setLabel] = useState("Office TV");
+  /** "Connect a TV with a code": the code on the TV, without its dash, and the TV's name. */
+  const [tvCode, setTvCode] = useState("");
+  const [tvName, setTvName] = useState("Office TV");
+  const [codeError, setCodeError] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   /** The new link, shown once right after it is made. */
@@ -100,6 +104,22 @@ export default function BoardSettingsClient() {
       setFresh(`${window.location.origin}/board/tv?k=${encodeURIComponent(String(data.token ?? ""))}`);
       await load();
     });
+
+  async function connectWithCode() {
+    setCodeError("");
+    if (!isTvCode(tvCode)) return setCodeError("Type the 6 letters and numbers showing on the TV, like K7P-3QX.");
+    setBusy(true);
+    try {
+      await postBoard({ action: "connectTv", code: tvCode, label: tvName });
+      setTvCode("");
+      showToast("Connected ✓ The TV is switching to the board.");
+      await load();
+    } catch (err) {
+      setCodeError(err instanceof Error ? err.message : "That did not connect. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const revoke = (link: TvLink) =>
     run(async () => {
@@ -209,9 +229,34 @@ export default function BoardSettingsClient() {
             </div>
           </Card>
 
-          <Card title="Office TV links">
+          <div id="tv-links" />
+          <Card title="TV links">
             <p className="ui-card-text">A TV link opens the board on the office TV without a login. It shows account names and the kind of paper only. Turn a link off if it gets out.</p>
             <div className="ui-stack" style={{ marginTop: 12 }}>
+              <p className="ui-strong">Connect a TV with a code</p>
+              <p className="ui-muted">On the TV, open cleaning-crm-xi.vercel.app/tv. It shows a code like K7P-3QX. Type it here.</p>
+              <Field
+                label="The code on the TV"
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                maxLength={7}
+                value={showTvCode(tvCode)}
+                disabled={busy}
+                onChange={(event) => setTvCode(cleanTvCode(event.target.value))}
+              />
+              <Field label="Name for this TV" hint="Where the TV is, so you know which one is which." value={tvName} maxLength={60} disabled={busy} onChange={(event) => setTvName(event.target.value)} />
+              {codeError ? <p className="ui-field-error">{codeError}</p> : null}
+              <div>
+                <BigButton busy={busy} busyLabel="Connecting…" onClick={() => void connectWithCode()}>
+                  Connect TV
+                </BigButton>
+              </div>
+
+              <p className="ui-strong" style={{ marginTop: 12 }}>
+                Backup: make a TV link
+              </p>
+              <p className="ui-muted">For a TV where you can paste a long link.</p>
               <Field label="Name for this link" hint="Where the TV is, so you know which link is which." value={label} maxLength={60} disabled={busy} onChange={(event) => setLabel(event.target.value)} />
               <div>
                 <BigButton kind="second" icon="plus" disabled={busy} onClick={() => void makeLink()}>

@@ -8,7 +8,8 @@ import { getAdminIdentity } from "@/lib/adminSession";
 import { getSql } from "@/lib/db";
 import type { BoardData, BoardMe } from "@/lib/board";
 import { smsCredit } from "@/lib/pg/sms-credit";
-import { NOTE_BOXES, STATUS_NOTE_MAX, isPinStatus } from "@/lib/board";
+import { NOTE_BOXES, STATUS_NOTE_MAX, cleanTvCode, isPinStatus, isTvCode } from "@/lib/board";
+import { checkRateLimit } from "@/lib/siteLinkRateLimit";
 import { setPaperStatus, statusHistory } from "@/lib/pg/pin-status";
 import { sendPush } from "@/lib/notify";
 import { markFirstResponse } from "@/lib/pg/complaint-response";
@@ -330,13 +331,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, token }, noStore);
     }
 
-    // "Show on TV": the 6-digit code a waiting TV is showing.
+    // Settings -> TV links "Connect a TV with a code", or "Show on TV" on the board: the code a waiting TV is showing.
     if (action === "connectTv") {
       if (identity.role !== "owner") return refuse("Only the owner can connect a TV.", 403);
-      const code = clean(body.code).replace(/\D/g, "");
-      if (code.length !== 6) return refuse("Type the 6 numbers showing on the TV.");
+      const code = cleanTvCode(clean(body.code));
+      if (!isTvCode(code)) return refuse("Type the 6 letters and numbers showing on the TV, like K7P-3QX.");
+      // At most 10 tries in 10 minutes for each person, and 30 for everyone together.
+      const allowed = (await checkRateLimit(`tv-code:${by}`, 10, 600)) && (await checkRateLimit("tv-code:all", 30, 600));
+      if (!allowed) return refuse("Too many tries. Wait 10 minutes, then type the code showing on the TV.", 429);
       if (!(await connectTv(code, clean(body.label) || "Office TV", by))) {
-        return refuse("That code did not match a TV. Codes last 10 minutes: check the numbers on the TV and try again.", 404);
+        return refuse("That code did not match a TV. Codes last 10 minutes and work once: check the code on the TV and try again.", 404);
       }
       return NextResponse.json({ success: true });
     }

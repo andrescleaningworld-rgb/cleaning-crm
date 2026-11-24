@@ -53,7 +53,7 @@ export default function ConnectedTvs() {
 
   return (
     <Card title="Connected TVs">
-      <p className="ui-card-text">TVs that show the board. To add one, open the Board and tap Show on TV.</p>
+      <p className="ui-card-text">TVs that show the board. To add one, go to Settings → TV links and type the code the TV shows.</p>
       <div className="ui-stack" style={{ marginTop: 12 }} data-connected-tvs>
         {problem ? <p className="ui-field-error">{problem}</p> : null}
         {links && links.length === 0 ? <p className="ui-muted">No TV is connected.</p> : null}

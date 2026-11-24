@@ -1,5 +1,5 @@
-// A TV that is not connected yet asks here for its 6-digit code, and asks
-// again every few seconds to learn when the owner has typed it on a phone.
+// A TV that is not connected yet asks here for its code (like K7P-3QX), and
+// asks again every few seconds to learn when the owner has typed it.
 // No login (proxy.ts: "/api/board/tv" and everything under it). Nothing about
 // the board leaves here: only the TV's own code, or "connected".
 

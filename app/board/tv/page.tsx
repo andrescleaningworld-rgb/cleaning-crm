@@ -1,7 +1,7 @@
 // Office TV mode (/tv, /board/tv, or /board/tv?k=<TV link token>): the
 // board, bigger and read-only. No login (see proxy.ts); the API checks the
-// TV link. A TV with no link shows a 6-digit code to connect it from a phone
-// (tv-gate.tsx). Hidden behind FEATURE_PIN_BOARD like the rest of the board.
+// TV link. A TV with no link shows a code like K7P-3QX, typed in Settings ->
+// TV links (tv-gate.tsx). Hidden behind FEATURE_PIN_BOARD like the rest of the board.
 
 import { notFound } from "next/navigation";
 import { boardFlagOn } from "@/lib/pg/board";

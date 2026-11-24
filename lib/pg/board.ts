@@ -21,7 +21,10 @@ import type { ComplaintTrackView } from "@/lib/complaintSteps";
 import {
   DEFAULT_BOARD_SETTINGS,
   PAPER_KINDS,
+  TV_CODE_CHARS,
+  TV_CODE_LENGTH,
   isPinStatus,
+  isTvCode,
   type BoardManager,
   type BoardSettings,
   type Paper,
@@ -849,12 +852,14 @@ export async function listTvLinks(): Promise<TvLink[]> {
   }));
 }
 
-/* ---------- connecting a TV with a 6-digit code ----------
+/* ---------- connecting a TV with a code ----------
  *
  * The TV makes its own secret and keeps it. While it waits, that secret is
  * stored (hashed, like every TV link) as a link that is still off, marked
- * "pair:<code>". When the owner types the code on a phone, the link is
- * switched on and named, and the TV's secret starts working. No new table.
+ * "pair:<code>". When the owner types the code (Settings -> TV links, or
+ * Show on TV on the board), the link is switched on and named, and the TV's
+ * secret starts working: it is then a normal TV link, with Turn off. A code
+ * works once and for 10 minutes; after that the TV gets a new one. No new table.
  */
 
 const PAIR_PREFIX = "pair:";
@@ -886,7 +891,7 @@ export async function startTvPairing(secret: string): Promise<TvPairing> {
   const taken = new Set(waiting.map((row) => row.revoked_by));
   let code = "";
   for (let attempt = 0; attempt < 20 && !code; attempt++) {
-    const candidate = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    const candidate = Array.from({ length: TV_CODE_LENGTH }, () => TV_CODE_CHARS[randomInt(0, TV_CODE_CHARS.length)]).join("");
     if (!taken.has(PAIR_PREFIX + candidate)) code = candidate;
   }
   if (!code) return { state: "busy" };
@@ -900,7 +905,7 @@ export async function startTvPairing(secret: string): Promise<TvPairing> {
 
 /** The owner typed a TV's code: that TV is connected and named. False when the code is wrong or older than 10 minutes. */
 export async function connectTv(code: string, label: string, by: string): Promise<boolean> {
-  if (!/^\d{6}$/.test(code)) return false;
+  if (!isTvCode(code)) return false;
   const sql = getSql();
   const rows = (await sql`
     UPDATE board_tv_links

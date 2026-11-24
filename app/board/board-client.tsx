@@ -24,7 +24,7 @@ import {
   friendlyDate,
   showToast,
 } from "@/app/ui";
-import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, daysLabel, daysPinned, dueLabel, isOld, isOverdue, paperLabel, statusLine, type BoardData, type Paper } from "@/lib/board";
+import { BOARD_FROM_KEY, BOARD_SCROLL_KEY, KIND_LABEL, NOTE_BOXES, SHARED_SQUARES, cleanTvCode, daysLabel, daysPinned, dueLabel, isOld, isOverdue, isTvCode, paperLabel, showTvCode, statusLine, type BoardData, type Paper } from "@/lib/board";
 import AddToBoxSheet, { type AddTarget } from "./board-add";
 import { CwNowAddSheet, CwNowTaskCard } from "./cw-now-task";
 import BoardCanvas from "./board-canvas";
@@ -151,12 +151,12 @@ export default function BoardClient({ startTab, phoneOpensMine = false }: { star
   // "Tap empty space in a box to add something there": the box that was tapped.
   const [adding, setAdding] = useState<AddTarget | null>(null);
   const [addingCwNow, setAddingCwNow] = useState(false);
-  // "Show on TV": open, and the code a scanned QR brought along (/board?tv=123456).
+  // "Show on TV": open, and the code a scanned QR brought along (/board?tv=K7P3QX).
   const [tvOpen, setTvOpen] = useState(false);
   const [tvCode, setTvCode] = useState("");
   useEffect(() => {
-    const code = (new URLSearchParams(window.location.search).get("tv") ?? "").replace(/\D/g, "").slice(0, 6);
-    if (code.length !== 6) return;
+    const code = cleanTvCode(new URLSearchParams(window.location.search).get("tv") ?? "");
+    if (!isTvCode(code)) return;
     setTvCode(code);
     setTvOpen(true);
     // The code is used once: it does not stay in the address.
@@ -802,7 +802,7 @@ function PinSheet({ open, data, defaultSquare, onClose, onPinned }: { open: bool
 }
 
 /**
- * "Show on TV": the owner types the 6 numbers the TV is showing (or arrives
+ * "Show on TV": the owner types the code the TV is showing (or arrives
  * here from the TV's QR code with them filled in) and names the TV. The TV
  * switches to the board by itself. "Copy TV link" is the backup for a TV
  * whose browser can paste a link.
@@ -824,7 +824,7 @@ function ShowOnTvSheet({ open, startCode, onClose }: { open: boolean; startCode:
 
   async function connect() {
     setError("");
-    if (code.length !== 6) return setError("Type the 6 numbers showing on the TV.");
+    if (!isTvCode(code)) return setError("Type the 6 letters and numbers showing on the TV, like K7P-3QX.");
     setBusy(true);
     try {
       await postBoard({ action: "connectTv", code, label: name });
@@ -861,7 +861,7 @@ function ShowOnTvSheet({ open, startCode, onClose }: { open: boolean; startCode:
     <Sheet
       open={open}
       title="Show on TV"
-      text="On the TV, open cleaning-crm-xi.vercel.app/tv. It shows 6 numbers."
+      text="On the TV, open cleaning-crm-xi.vercel.app/tv. It shows a code like K7P-3QX."
       onClose={onClose}
       busy={busy}
       actions={
@@ -871,7 +871,7 @@ function ShowOnTvSheet({ open, startCode, onClose }: { open: boolean; startCode:
       }
     >
       <div className="ui-stack">
-        <Field label="The 6 numbers on the TV" inputMode="numeric" autoComplete="one-time-code" maxLength={7} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
+        <Field label="The code on the TV" autoComplete="off" autoCapitalize="characters" spellCheck={false} maxLength={7} value={showTvCode(code)} onChange={(event) => setCode(cleanTvCode(event.target.value))} />
         <Field label="Name for this TV" hint="So you know which TV is which in Settings, Team." maxLength={60} value={name} onChange={(event) => setName(event.target.value)} />
         {error ? <p className="ui-field-error">{error}</p> : null}
         <p className="ui-muted">The TV only shows the board. Nothing can be changed from it, and it never shows money.</p>

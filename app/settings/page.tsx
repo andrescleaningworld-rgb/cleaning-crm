@@ -965,6 +965,7 @@ export default function SettingsPage() {
         {/* The places to go, one tap each. The Activity Log tile is owner-only, as before. */}
         <div className="ui-acttiles">
           <Tile icon="status" label="Team" detail="Who does the Office steps, when things turn red, and connected TVs" href="/settings/team" />
+          {isOwner ? <Tile icon="status" label="TV links" detail="Connect the office TV with a code" href="/settings/board#tv-links" /> : null}
           <Tile icon="key" label="Customer Portal Access" detail="Turn the portal on or off for an account" href="/settings/portal" />
           <Tile icon="note" label="Extra Services" detail="What customers can request" href="/settings/extra-services" />
           <Tile icon="status" label="Equipment Categories and Staff" href="/settings/equipment-categories" />
